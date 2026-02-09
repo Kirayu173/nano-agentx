@@ -19,3 +19,6 @@ poetry.lock
 .pytest_cache/
 tests/
 botpy.log
+# Runtime artifacts
+workspace/.nanobot/
+workspace/.tmp-playwright-browsers/

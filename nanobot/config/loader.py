@@ -70,8 +70,13 @@ def _migrate_config(data: dict) -> dict:
     if "restrictToWorkspace" in exec_cfg and "restrictToWorkspace" not in tools:
         tools["restrictToWorkspace"] = exec_cfg.pop("restrictToWorkspace")
 
+    # Move legacy tools.browser.* -> tools.web.browser.*
+    legacy_browser_cfg = tools.pop("browser", None)
+
     # Move legacy tools.web.search.apiKey -> tools.web.search.providers.brave.apiKey
-    web_cfg = tools.get("web", {})
+    web_cfg = tools.setdefault("web", {})
+    if legacy_browser_cfg and "browser" not in web_cfg:
+        web_cfg["browser"] = legacy_browser_cfg
     search_cfg = web_cfg.get("search", {})
     legacy_api_key = search_cfg.get("apiKey")
     if legacy_api_key:

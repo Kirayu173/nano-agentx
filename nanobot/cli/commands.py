@@ -356,6 +356,7 @@ def gateway(
         model=config.agents.defaults.model,
         max_iterations=config.agents.defaults.max_tool_iterations,
         web_search_config=config.tools.web.search,
+        web_browser_config=config.tools.web.browser,
         exec_config=config.tools.exec,
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
@@ -460,6 +461,7 @@ def agent(
         provider=provider,
         workspace=config.workspace_path,
         web_search_config=config.tools.web.search,
+        web_browser_config=config.tools.web.browser,
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
     )

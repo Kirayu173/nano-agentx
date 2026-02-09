@@ -26,6 +26,7 @@ dependencies = [
     "httpx[socks]>=0.25.0",
     "loguru>=0.7.0",
     "readability-lxml>=0.8.0",
+    "playwright>=1.51.0",
     "rich>=13.0.0",
     "croniter>=2.0.0",
     "dingtalk-stream>=0.4.0",

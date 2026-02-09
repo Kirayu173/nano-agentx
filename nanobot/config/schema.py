@@ -192,9 +192,25 @@ class WebSearchConfig(BaseModel):
     providers: WebSearchProvidersConfig = Field(default_factory=WebSearchProvidersConfig)
 
 
+class BrowserToolConfig(BaseModel):
+    """Browser automation tool configuration."""
+    enabled: bool = True
+    default_browser: Literal["chromium", "firefox"] = "chromium"
+    headless: bool = True
+    timeout_ms: int = 15000
+    max_actions: int = 12
+    max_extract_chars: int = 20000
+    auto_install_browsers: bool = True
+    allow_private_network: bool = False
+    block_file_scheme: bool = True
+    state_dir: str = ".nanobot/browser/state"
+    artifacts_dir: str = ".nanobot/browser/artifacts"
+
+
 class WebToolsConfig(BaseModel):
     """Web tools configuration."""
     search: WebSearchConfig = Field(default_factory=WebSearchConfig)
+    browser: BrowserToolConfig = Field(default_factory=BrowserToolConfig)
 
 
 class ExecToolConfig(BaseModel):

@@ -66,6 +66,35 @@ web_fetch(url: str, extractMode: str = "markdown", maxChars: int = 50000) -> str
 - Supports markdown or plain text extraction
 - Output is truncated at 50,000 characters by default
 
+### browser_run
+Run multi-step browser automation in a single Playwright session.
+```
+browser_run(
+  actions: list[dict],
+  browser: str = "chromium",
+  headless: bool = true,
+  startUrl: str = None,
+  timeoutMs: int = 15000,
+  stateKey: str = None,
+  saveState: bool = false
+) -> str
+```
+
+**Supported action types:**
+- `goto` (url, optional waitUntil)
+- `click` (selector)
+- `type` (selector, text)
+- `wait_for` (selector or text or timeoutMs)
+- `extract_text` (optional selector, optional maxChars)
+- `screenshot` (optional path, optional fullPage)
+
+**Safety Notes:**
+- Only `http/https` navigation is allowed by default
+- `file://` and private/local network targets are blocked by default
+- State and screenshot paths must stay within the workspace
+
+Configure via `tools.web.browser.*` in config.
+
 ## Communication
 
 ### message

@@ -15,6 +15,7 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, ListDirTool
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
+from nanobot.agent.tools.browser import BrowserRunTool
 
 
 class SubagentManager:
@@ -33,15 +34,21 @@ class SubagentManager:
         bus: MessageBus,
         model: str | None = None,
         web_search_config: "WebSearchConfig | None" = None,
+        web_browser_config: "BrowserToolConfig | None" = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
     ):
-        from nanobot.config.schema import ExecToolConfig, WebSearchConfig
+        from nanobot.config.schema import (
+            BrowserToolConfig,
+            ExecToolConfig,
+            WebSearchConfig,
+        )
         self.provider = provider
         self.workspace = workspace
         self.bus = bus
         self.model = model or provider.get_default_model()
         self.web_search_config = web_search_config or WebSearchConfig()
+        self.web_browser_config = web_browser_config or BrowserToolConfig()
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
@@ -97,18 +104,7 @@ class SubagentManager:
         
         try:
             # Build subagent tools (no message tool, no spawn tool)
-            tools = ToolRegistry()
-            allowed_dir = self.workspace if self.restrict_to_workspace else None
-            tools.register(ReadFileTool(allowed_dir=allowed_dir))
-            tools.register(WriteFileTool(allowed_dir=allowed_dir))
-            tools.register(ListDirTool(allowed_dir=allowed_dir))
-            tools.register(ExecTool(
-                working_dir=str(self.workspace),
-                timeout=self.exec_config.timeout,
-                restrict_to_workspace=self.restrict_to_workspace,
-            ))
-            tools.register(WebSearchTool(web_search_config=self.web_search_config))
-            tools.register(WebFetchTool())
+            tools = self._build_tool_registry()
             
             # Build messages with subagent-specific prompt
             system_prompt = self._build_subagent_prompt(task)
@@ -176,6 +172,29 @@ class SubagentManager:
             logger.error(f"Subagent [{task_id}] failed: {e}")
             await self._announce_result(task_id, label, task, error_msg, origin, "error")
     
+    def _build_tool_registry(self) -> ToolRegistry:
+        """Build the tool registry used by a subagent run."""
+        tools = ToolRegistry()
+        allowed_dir = self.workspace if self.restrict_to_workspace else None
+        tools.register(ReadFileTool(allowed_dir=allowed_dir))
+        tools.register(WriteFileTool(allowed_dir=allowed_dir))
+        tools.register(ListDirTool(allowed_dir=allowed_dir))
+        tools.register(ExecTool(
+            working_dir=str(self.workspace),
+            timeout=self.exec_config.timeout,
+            restrict_to_workspace=self.restrict_to_workspace,
+        ))
+        tools.register(WebSearchTool(web_search_config=self.web_search_config))
+        tools.register(WebFetchTool())
+        if self.web_browser_config.enabled:
+            tools.register(
+                BrowserRunTool(
+                    workspace=self.workspace,
+                    web_browser_config=self.web_browser_config,
+                )
+            )
+        return tools
+
     async def _announce_result(
         self,
         task_id: str,

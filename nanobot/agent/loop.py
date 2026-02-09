@@ -15,6 +15,7 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
+from nanobot.agent.tools.browser import BrowserRunTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.cron import CronTool
@@ -42,12 +43,17 @@ class AgentLoop:
         model: str | None = None,
         max_iterations: int = 20,
         web_search_config: "WebSearchConfig | None" = None,
+        web_browser_config: "BrowserToolConfig | None" = None,
         exec_config: "ExecToolConfig | None" = None,
         cron_service: "CronService | None" = None,
         restrict_to_workspace: bool = False,
         session_manager: SessionManager | None = None,
     ):
-        from nanobot.config.schema import ExecToolConfig, WebSearchConfig
+        from nanobot.config.schema import (
+            BrowserToolConfig,
+            ExecToolConfig,
+            WebSearchConfig,
+        )
         from nanobot.cron.service import CronService
         self.bus = bus
         self.provider = provider
@@ -55,6 +61,7 @@ class AgentLoop:
         self.model = model or provider.get_default_model()
         self.max_iterations = max_iterations
         self.web_search_config = web_search_config or WebSearchConfig()
+        self.web_browser_config = web_browser_config or BrowserToolConfig()
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
@@ -68,6 +75,7 @@ class AgentLoop:
             bus=bus,
             model=self.model,
             web_search_config=self.web_search_config,
+            web_browser_config=self.web_browser_config,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
         )
@@ -94,6 +102,13 @@ class AgentLoop:
         # Web tools
         self.tools.register(WebSearchTool(web_search_config=self.web_search_config))
         self.tools.register(WebFetchTool())
+        if self.web_browser_config.enabled:
+            self.tools.register(
+                BrowserRunTool(
+                    workspace=self.workspace,
+                    web_browser_config=self.web_browser_config,
+                )
+            )
         
         # Message tool
         message_tool = MessageTool(send_callback=self.bus.publish_outbound)
