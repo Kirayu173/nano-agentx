@@ -1,6 +1,7 @@
 """Configuration schema using Pydantic."""
 
 from pathlib import Path
+from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
@@ -159,10 +160,36 @@ class GatewayConfig(BaseModel):
     port: int = 18790
 
 
+class SearchProviderConfig(BaseModel):
+    """Web search provider configuration."""
+    api_key: str = ""
+    base_url: str = ""
+
+
+class WebSearchProvidersConfig(BaseModel):
+    """Web search providers configuration."""
+    brave: SearchProviderConfig = Field(
+        default_factory=lambda: SearchProviderConfig(
+            base_url="https://api.search.brave.com/res/v1/web/search"
+        )
+    )
+    tavily: SearchProviderConfig = Field(
+        default_factory=lambda: SearchProviderConfig(
+            base_url="https://api.tavily.com/search"
+        )
+    )
+    serper: SearchProviderConfig = Field(
+        default_factory=lambda: SearchProviderConfig(
+            base_url="https://google.serper.dev/search"
+        )
+    )
+
+
 class WebSearchConfig(BaseModel):
     """Web search tool configuration."""
-    api_key: str = ""  # Brave Search API key
+    provider: Literal["brave", "tavily", "serper"] = "brave"
     max_results: int = 5
+    providers: WebSearchProvidersConfig = Field(default_factory=WebSearchProvidersConfig)
 
 
 class WebToolsConfig(BaseModel):

@@ -69,6 +69,29 @@ def _migrate_config(data: dict) -> dict:
     exec_cfg = tools.get("exec", {})
     if "restrictToWorkspace" in exec_cfg and "restrictToWorkspace" not in tools:
         tools["restrictToWorkspace"] = exec_cfg.pop("restrictToWorkspace")
+
+    # Move legacy tools.web.search.apiKey -> tools.web.search.providers.brave.apiKey
+    web_cfg = tools.get("web", {})
+    search_cfg = web_cfg.get("search", {})
+    legacy_api_key = search_cfg.get("apiKey")
+    if legacy_api_key:
+        providers_cfg = search_cfg.setdefault("providers", {})
+        brave_cfg = providers_cfg.setdefault("brave", {})
+        if not brave_cfg.get("apiKey"):
+            brave_cfg["apiKey"] = legacy_api_key
+
+    # Fill default search provider base URLs when missing/empty
+    default_base_urls = {
+        "brave": "https://api.search.brave.com/res/v1/web/search",
+        "tavily": "https://api.tavily.com/search",
+        "serper": "https://google.serper.dev/search",
+    }
+    providers_cfg = search_cfg.setdefault("providers", {})
+    for name, base_url in default_base_urls.items():
+        provider_cfg = providers_cfg.setdefault(name, {})
+        if not provider_cfg.get("baseUrl"):
+            provider_cfg["baseUrl"] = base_url
+
     return data
 
 

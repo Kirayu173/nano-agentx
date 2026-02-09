@@ -45,12 +45,15 @@ exec(command: str, working_dir: str = None) -> str
 ## Web Access
 
 ### web_search
-Search the web using Brave Search API.
+Search the web using the configured provider (`brave`, `tavily`, or `serper`).
 ```
 web_search(query: str, count: int = 5) -> str
 ```
 
-Returns search results with titles, URLs, and snippets. Requires `tools.web.search.apiKey` in config.
+Returns search results with titles, URLs, and snippets.
+Configure via `tools.web.search.provider` and
+`tools.web.search.providers.<provider>.apiKey` (or env vars: `BRAVE_API_KEY`,
+`TAVILY_API_KEY`, `SERPER_API_KEY`).
 
 ### web_fetch
 Fetch and extract main content from a URL.
