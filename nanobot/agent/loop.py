@@ -3,24 +3,27 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Any
 
 from loguru import logger
 
+from nanobot.agent.context import ContextBuilder
+from nanobot.agent.subagent import SubagentManager
+from nanobot.agent.tools.browser import BrowserRunTool
+from nanobot.agent.tools.cron import CronTool
+from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
+from nanobot.agent.tools.message import MessageTool
+from nanobot.agent.tools.registry import ToolRegistry
+from nanobot.agent.tools.shell import ExecTool
+from nanobot.agent.tools.spawn import SpawnTool
+from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
+from nanobot.config.loader import get_config_path
+from nanobot.config.schema import BrowserToolConfig, ExecToolConfig, WebSearchConfig
+from nanobot.cron.service import CronService
 from nanobot.providers.base import LLMProvider
-from nanobot.agent.context import ContextBuilder
-from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
-from nanobot.agent.tools.shell import ExecTool
-from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
-from nanobot.agent.tools.browser import BrowserRunTool
-from nanobot.agent.tools.message import MessageTool
-from nanobot.agent.tools.spawn import SpawnTool
-from nanobot.agent.tools.cron import CronTool
-from nanobot.agent.subagent import SubagentManager
 from nanobot.session.manager import SessionManager
+from nanobot.utils.redaction import SensitiveOutputRedactor
 
 
 class AgentLoop:
@@ -42,19 +45,14 @@ class AgentLoop:
         workspace: Path,
         model: str | None = None,
         max_iterations: int = 20,
-        web_search_config: "WebSearchConfig | None" = None,
-        web_browser_config: "BrowserToolConfig | None" = None,
-        exec_config: "ExecToolConfig | None" = None,
-        cron_service: "CronService | None" = None,
+        web_search_config: WebSearchConfig | None = None,
+        web_browser_config: BrowserToolConfig | None = None,
+        exec_config: ExecToolConfig | None = None,
+        cron_service: CronService | None = None,
         restrict_to_workspace: bool = False,
+        redact_sensitive_output: bool = True,
         session_manager: SessionManager | None = None,
     ):
-        from nanobot.config.schema import (
-            BrowserToolConfig,
-            ExecToolConfig,
-            WebSearchConfig,
-        )
-        from nanobot.cron.service import CronService
         self.bus = bus
         self.provider = provider
         self.workspace = workspace
@@ -65,6 +63,12 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self.redactor = SensitiveOutputRedactor(
+            enabled=redact_sensitive_output,
+            workspace=workspace,
+            config_path=get_config_path(),
+            extra_secrets=[provider.api_key or "", provider.api_base or ""],
+        )
         
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
@@ -111,7 +115,7 @@ class AgentLoop:
             )
         
         # Message tool
-        message_tool = MessageTool(send_callback=self.bus.publish_outbound)
+        message_tool = MessageTool(send_callback=self._publish_outbound_safe)
         self.tools.register(message_tool)
         
         # Spawn tool (for subagents)
@@ -121,6 +125,25 @@ class AgentLoop:
         # Cron tool (for scheduling)
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+
+    def _redact_text(self, content: str | None) -> str:
+        """Apply output redaction policy to text."""
+        return self.redactor.redact(content or "")
+
+    def _redact_outbound(self, msg: OutboundMessage) -> OutboundMessage:
+        """Return a copy of outbound message with redacted content."""
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=self._redact_text(msg.content),
+            reply_to=msg.reply_to,
+            media=msg.media,
+            metadata=msg.metadata,
+        )
+
+    async def _publish_outbound_safe(self, msg: OutboundMessage) -> None:
+        """Publish outbound messages after redacting sensitive content."""
+        await self.bus.publish_outbound(self._redact_outbound(msg))
     
     async def run(self) -> None:
         """Run the agent loop, processing messages from the bus."""
@@ -139,11 +162,11 @@ class AgentLoop:
                 try:
                     response = await self._process_message(msg)
                     if response:
-                        await self.bus.publish_outbound(response)
+                        await self._publish_outbound_safe(response)
                 except Exception as e:
                     logger.error(f"Error processing message: {e}")
                     # Send error response
-                    await self.bus.publish_outbound(OutboundMessage(
+                    await self._publish_outbound_safe(OutboundMessage(
                         channel=msg.channel,
                         chat_id=msg.chat_id,
                         content=f"Sorry, I encountered an error: {str(e)}"
@@ -235,7 +258,8 @@ class AgentLoop:
                 # Execute tools
                 for tool_call in response.tool_calls:
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                    logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
+                    safe_args = self._redact_text(args_str)
+                    logger.info(f"Tool call: {tool_call.name}({safe_args[:200]})")
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
@@ -247,6 +271,7 @@ class AgentLoop:
         
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
+        final_content = self._redact_text(final_content)
         
         # Log response preview
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
@@ -340,7 +365,8 @@ class AgentLoop:
                 
                 for tool_call in response.tool_calls:
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                    logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
+                    safe_args = self._redact_text(args_str)
+                    logger.info(f"Tool call: {tool_call.name}({safe_args[:200]})")
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
@@ -351,9 +377,11 @@ class AgentLoop:
         
         if final_content is None:
             final_content = "Background task completed."
+        final_content = self._redact_text(final_content)
         
         # Save to session (mark as system message in history)
-        session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
+        system_msg = self._redact_text(f"[System: {msg.sender_id}] {msg.content}")
+        session.add_message("user", system_msg)
         session.add_message("assistant", final_content)
         self.sessions.save(session)
         
@@ -390,4 +418,4 @@ class AgentLoop:
         )
         
         response = await self._process_message(msg)
-        return response.content if response else ""
+        return self._redact_text(response.content if response else "")

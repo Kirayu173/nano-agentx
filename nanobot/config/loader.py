@@ -97,6 +97,14 @@ def _migrate_config(data: dict) -> dict:
         if not provider_cfg.get("baseUrl"):
             provider_cfg["baseUrl"] = base_url
 
+    # Move legacy tools.redactSensitiveOutput -> security.redactSensitiveOutput
+    security_cfg = data.setdefault("security", {})
+    legacy_redaction = tools.pop("redactSensitiveOutput", None)
+    if legacy_redaction is None:
+        legacy_redaction = tools.pop("redact_sensitive_output", None)
+    if legacy_redaction is not None and "redactSensitiveOutput" not in security_cfg:
+        security_cfg["redactSensitiveOutput"] = legacy_redaction
+
     return data
 
 

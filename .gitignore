@@ -17,7 +17,12 @@ docs/
 __pycache__/
 poetry.lock
 .pytest_cache/
-tests/
+tests/*
+!tests/test_docker.sh
+!tests/test_email_channel.py
+!tests/test_tool_validation.py
+!tests/test_redaction.py
+!tests/test_agent_output_redaction.py
 botpy.log
 # Runtime artifacts
 workspace/.nanobot/

@@ -360,6 +360,7 @@ def gateway(
         exec_config=config.tools.exec,
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
+        redact_sensitive_output=config.security.redact_sensitive_output,
         session_manager=session_manager,
     )
     
@@ -464,6 +465,7 @@ def agent(
         web_browser_config=config.tools.web.browser,
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
+        redact_sensitive_output=config.security.redact_sensitive_output,
     )
     
     # Show spinner when logs are off (no output to miss); skip when logs are on

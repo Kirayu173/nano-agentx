@@ -225,6 +225,11 @@ class ToolsConfig(BaseModel):
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
 
 
+class SecurityConfig(BaseModel):
+    """Security configuration."""
+    redact_sensitive_output: bool = True
+
+
 class Config(BaseSettings):
     """Root configuration for nanobot."""
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
@@ -232,6 +237,7 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
     
     @property
     def workspace_path(self) -> Path:

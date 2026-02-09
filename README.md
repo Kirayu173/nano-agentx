@@ -598,7 +598,16 @@ That's it! Environment variables, model prefixing, config matching, and `nanobot
 |--------|---------|-------------|
 | `tools.restrictToWorkspace` | `false` | When `true`, restricts **all** agent tools (shell, file read/write/edit, list) to the workspace directory. Prevents path traversal and out-of-scope access. |
 | `tools.web.browser.enabled` | `true` | Enables the Playwright-based `browser_run` tool for dynamic website automation. |
+| `security.redactSensitiveOutput` | `true` | Redacts sensitive output (paths, local endpoints, keys/tokens/secrets, prompt snippets, chat IDs) before sending responses to users. |
 | `channels.*.allowFrom` | `[]` (allow all) | Whitelist of user IDs. Empty = allow everyone; non-empty = only listed users can interact. |
+
+```json
+{
+  "security": {
+    "redactSensitiveOutput": true
+  }
+}
+```
 
 
 ## CLI Reference
