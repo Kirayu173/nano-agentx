@@ -17,11 +17,19 @@ You have access to:
 - Web access (search, fetch)
 - Messaging (message)
 - Background tasks (spawn)
+- TODO management (todo)
 
 ## Memory
 
 - Use `memory/` directory for daily notes
 - Use `MEMORY.md` for long-term information
+
+## TODO Management
+
+- Prefer the `todo` tool for all TODO lifecycle operations.
+- Treat `memory/todo.md` as tool-managed state. Do not hand-edit it unless repairing broken data.
+- Use `todo(action="review_daily")` for daily summarization.
+- Create reminders only when the user explicitly asks for notifications.
 
 ## Scheduled Reminders
 

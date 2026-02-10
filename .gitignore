@@ -23,6 +23,10 @@ tests/*
 !tests/test_tool_validation.py
 !tests/test_redaction.py
 !tests/test_agent_output_redaction.py
+!tests/test_todo_tool.py
+!tests/test_todo_storage.py
+!tests/test_todo_registration.py
+!tests/test_todo_e2e.py
 botpy.log
 # Runtime artifacts
 workspace/.nanobot/

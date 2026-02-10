@@ -14,6 +14,7 @@ from nanobot.providers.base import LLMProvider
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, ListDirTool
 from nanobot.agent.tools.shell import ExecTool
+from nanobot.agent.tools.todo import TodoTool
 from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.agent.tools.browser import BrowserRunTool
 
@@ -184,6 +185,7 @@ class SubagentManager:
             timeout=self.exec_config.timeout,
             restrict_to_workspace=self.restrict_to_workspace,
         ))
+        tools.register(TodoTool(workspace=self.workspace))
         tools.register(WebSearchTool(web_search_config=self.web_search_config))
         tools.register(WebFetchTool())
         if self.web_browser_config.enabled:

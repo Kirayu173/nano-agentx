@@ -15,6 +15,7 @@ from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
+from nanobot.agent.tools.todo import TodoTool
 from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
@@ -113,6 +114,9 @@ class AgentLoop:
                     web_browser_config=self.web_browser_config,
                 )
             )
+        
+        # TODO management tool
+        self.tools.register(TodoTool(workspace=self.workspace))
         
         # Message tool
         message_tool = MessageTool(send_callback=self._publish_outbound_safe)

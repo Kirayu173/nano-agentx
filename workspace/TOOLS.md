@@ -113,6 +113,35 @@ spawn(task: str, label: str = None) -> str
 
 Use for complex or time-consuming tasks that can run independently. The subagent will complete the task and report back when done.
 
+## TODO Management
+
+### todo
+Manage TODO tasks in `memory/todo.md` (markdown + embedded JSON data block).
+```
+todo(
+  action: str,                     # init|add|list|update|bulk_update|move|done|remove|bulk_remove|archive|reorder|stats|review_daily
+  id: str = None,
+  ids: list[str] = None,
+  title: str = None,
+  note: str = None,
+  status: str = None,              # todo|doing|blocked|done|archived
+  priority: int = None,            # 1..4 (1 highest)
+  due: str = None,                 # ISO date/datetime
+  tags: list[str] = None,
+  depends_on: list[str] = None,
+  filters: dict = None,
+  patch: dict = None,
+  sort_by: str = None,             # priority|due|created|updated
+  sort_order: str = None,          # asc|desc
+  limit: int = None
+) -> str (JSON payload)
+```
+
+**Notes:**
+- Use `todo` as the source of truth for TODO operations.
+- `review_daily` is idempotent per day.
+- Due dates do not create reminders automatically.
+
 ## Scheduled Reminders (Cron)
 
 Use the `exec` tool to create scheduled reminders with `nanobot cron add`:
