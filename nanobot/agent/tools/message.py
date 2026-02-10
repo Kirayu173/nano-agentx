@@ -34,7 +34,10 @@ class MessageTool(Tool):
     
     @property
     def description(self) -> str:
-        return "Send a message to the user. Use this when you want to communicate something."
+        return (
+            "Send a message to the user. "
+            "Optional media paths can be attached for channels that support uploads."
+        )
     
     @property
     def parameters(self) -> dict[str, Any]:
@@ -52,6 +55,11 @@ class MessageTool(Tool):
                 "chat_id": {
                     "type": "string",
                     "description": "Optional: target chat/user ID"
+                },
+                "media": {
+                    "type": "array",
+                    "description": "Optional: local file paths to upload as attachments",
+                    "items": {"type": "string"},
                 }
             },
             "required": ["content"]
@@ -62,6 +70,7 @@ class MessageTool(Tool):
         content: str, 
         channel: str | None = None, 
         chat_id: str | None = None,
+        media: list[str] | None = None,
         **kwargs: Any
     ) -> str:
         channel = channel or self._default_channel
@@ -76,7 +85,8 @@ class MessageTool(Tool):
         msg = OutboundMessage(
             channel=channel,
             chat_id=chat_id,
-            content=content
+            content=content,
+            media=media or [],
         )
         
         try:

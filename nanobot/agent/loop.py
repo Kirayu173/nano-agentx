@@ -134,6 +134,66 @@ class AgentLoop:
         """Apply output redaction policy to text."""
         return self.redactor.redact(content or "")
 
+    def _normalize_media_paths(self, media: list[str] | None) -> list[str]:
+        """
+        Normalize outbound media paths to absolute paths.
+
+        Preference order for relative paths:
+        1) Current process working directory
+        2) Agent workspace path (with special handling for "workspace/..." prefix)
+        """
+        if not media:
+            return []
+
+        normalized: list[str] = []
+        for raw_path in media:
+            if not isinstance(raw_path, str):
+                continue
+
+            text = raw_path.strip()
+            if not text:
+                continue
+
+            try:
+                p = Path(text).expanduser()
+                candidates: list[Path] = []
+
+                if p.is_absolute():
+                    candidates.append(p)
+                else:
+                    candidates.append(Path.cwd() / p)
+
+                    normalized_text = text.replace("\\", "/")
+                    if normalized_text.startswith("workspace/"):
+                        rel = normalized_text[len("workspace/"):]
+                        if rel:
+                            candidates.append(self.workspace / rel)
+
+                    candidates.append(self.workspace / p)
+
+                chosen = next(
+                    (candidate.resolve(strict=False) for candidate in candidates
+                     if candidate.exists() and candidate.is_file()),
+                    None,
+                )
+
+                if chosen is None:
+                    if not p.is_absolute():
+                        normalized_text = text.replace("\\", "/")
+                        if normalized_text.startswith("workspace/"):
+                            rel = normalized_text[len("workspace/"):]
+                            if rel:
+                                chosen = (self.workspace / rel).resolve(strict=False)
+                    if chosen is None:
+                        chosen = (p if p.is_absolute() else (self.workspace / p)).resolve(strict=False)
+
+                normalized.append(str(chosen))
+            except Exception:
+                # Keep original value if normalization fails unexpectedly.
+                normalized.append(text)
+
+        return normalized
+
     def _redact_outbound(self, msg: OutboundMessage) -> OutboundMessage:
         """Return a copy of outbound message with redacted content."""
         return OutboundMessage(
@@ -141,7 +201,7 @@ class AgentLoop:
             chat_id=msg.chat_id,
             content=self._redact_text(msg.content),
             reply_to=msg.reply_to,
-            media=msg.media,
+            media=self._normalize_media_paths(msg.media),
             metadata=msg.metadata,
         )
 

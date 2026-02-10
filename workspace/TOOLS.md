@@ -100,8 +100,11 @@ Configure via `tools.web.browser.*` in config.
 ### message
 Send a message to the user (used internally).
 ```
-message(content: str, channel: str = None, chat_id: str = None) -> str
+message(content: str, channel: str = None, chat_id: str = None, media: list[str] = None) -> str
 ```
+
+Notes:
+- `media` accepts local file paths for attachment uploads on channels that support it (e.g. Feishu).
 
 ## Background Tasks
 

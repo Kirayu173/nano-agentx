@@ -171,6 +171,47 @@ async def test_message_tool_outbound_content_is_redacted(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_message_tool_outbound_media_paths_are_normalized_to_workspace(tmp_path: Path) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    screenshot_dir = workspace / "screenshots"
+    screenshot_dir.mkdir(parents=True, exist_ok=True)
+    screenshot = screenshot_dir / "shot.png"
+    screenshot.write_bytes(b"\x89PNG\r\n\x1a\npayload")
+
+    provider = ScriptedProvider(
+        [
+            LLMResponse(
+                content="",
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call-1",
+                        name="message",
+                        arguments={
+                            "content": "sending file",
+                            "media": ["workspace/screenshots/shot.png"],
+                        },
+                    )
+                ],
+            ),
+            LLMResponse(content="done"),
+        ]
+    )
+    sessions = InMemorySessionManager()
+    loop = _build_loop(workspace, provider, session_manager=sessions)
+
+    inbound = InboundMessage(
+        channel="feishu",
+        sender_id="u1",
+        chat_id="ou_test",
+        content="upload it",
+    )
+    await loop._process_message(inbound)
+
+    outbound_from_tool = await loop.bus.consume_outbound()
+    assert outbound_from_tool.media == [str(screenshot)]
+
+
+@pytest.mark.asyncio
 async def test_system_message_flow_saves_redacted_history(tmp_path: Path) -> None:
     workspace = (tmp_path / "workspace").resolve()
     workspace.mkdir(parents=True, exist_ok=True)

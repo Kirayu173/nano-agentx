@@ -27,6 +27,8 @@ tests/*
 !tests/test_todo_storage.py
 !tests/test_todo_registration.py
 !tests/test_todo_e2e.py
+!tests/test_message_tool.py
+!tests/test_feishu_channel.py
 botpy.log
 # Runtime artifacts
 workspace/.nanobot/

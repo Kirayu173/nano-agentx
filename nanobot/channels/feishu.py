@@ -2,9 +2,11 @@
 
 import asyncio
 import json
+import mimetypes
 import re
 import threading
 from collections import OrderedDict
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -17,6 +19,10 @@ from nanobot.config.schema import FeishuConfig
 try:
     import lark_oapi as lark
     from lark_oapi.api.im.v1 import (
+        CreateFileRequest,
+        CreateFileRequestBody,
+        CreateImageRequest,
+        CreateImageRequestBody,
         CreateMessageRequest,
         CreateMessageRequestBody,
         CreateMessageReactionRequest,
@@ -52,6 +58,11 @@ class FeishuChannel(BaseChannel):
     """
     
     name = "feishu"
+    _MAX_IMAGE_BYTES = 10 * 1024 * 1024
+    _MAX_FILE_BYTES = 30 * 1024 * 1024
+    _IMAGE_SUFFIXES = {
+        ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".ico", ".tiff", ".tif", ".heic"
+    }
     
     def __init__(self, config: FeishuConfig, bus: MessageBus):
         super().__init__(config, bus)
@@ -195,6 +206,139 @@ class FeishuChannel(BaseChannel):
             elements.append({"tag": "markdown", "content": remaining})
         return elements or [{"tag": "markdown", "content": content}]
 
+    @staticmethod
+    def _guess_file_type(path: Path) -> str:
+        """Map file extension to Feishu file_type values."""
+        suffix = path.suffix.lower()
+        if suffix == ".opus":
+            return "opus"
+        if suffix == ".mp4":
+            return "mp4"
+        if suffix == ".pdf":
+            return "pdf"
+        if suffix in {".doc", ".docx"}:
+            return "doc"
+        if suffix in {".xls", ".xlsx"}:
+            return "xls"
+        if suffix in {".ppt", ".pptx"}:
+            return "ppt"
+        return "stream"
+
+    @staticmethod
+    def _is_uploadable_image(path: Path) -> bool:
+        if path.suffix.lower() not in FeishuChannel._IMAGE_SUFFIXES:
+            return False
+        mime, _ = mimetypes.guess_type(str(path))
+        if mime and not mime.startswith("image/"):
+            return False
+        return True
+
+    def _upload_image(self, path: Path) -> str | None:
+        """Upload image via /open-apis/im/v1/images and return image_key."""
+        try:
+            with path.open("rb") as f:
+                request = CreateImageRequest.builder().request_body(
+                    CreateImageRequestBody.builder()
+                    .image_type("message")
+                    .image(f)
+                    .build()
+                ).build()
+                response = self._client.im.v1.image.create(request)
+
+            if not response.success():
+                logger.error(
+                    f"Failed to upload Feishu image: file={path.name}, "
+                    f"code={response.code}, msg={response.msg}, log_id={response.get_log_id()}"
+                )
+                return None
+
+            image_key = getattr(response.data, "image_key", None) if response.data else None
+            if not image_key:
+                logger.error(f"Feishu image upload succeeded but image_key is empty: file={path.name}")
+                return None
+            return image_key
+        except Exception as e:
+            logger.error(f"Error uploading Feishu image {path}: {e}")
+            return None
+
+    def _upload_file(self, path: Path) -> str | None:
+        """Upload file via /open-apis/im/v1/files and return file_key."""
+        file_type = self._guess_file_type(path)
+        try:
+            with path.open("rb") as f:
+                request = CreateFileRequest.builder().request_body(
+                    CreateFileRequestBody.builder()
+                    .file_type(file_type)
+                    .file_name(path.name)
+                    .file(f)
+                    .build()
+                ).build()
+                response = self._client.im.v1.file.create(request)
+
+            if not response.success():
+                logger.error(
+                    f"Failed to upload Feishu file: file={path.name}, file_type={file_type}, "
+                    f"code={response.code}, msg={response.msg}, log_id={response.get_log_id()}"
+                )
+                return None
+
+            file_key = getattr(response.data, "file_key", None) if response.data else None
+            if not file_key:
+                logger.error(f"Feishu file upload succeeded but file_key is empty: file={path.name}")
+                return None
+            return file_key
+        except Exception as e:
+            logger.error(f"Error uploading Feishu file {path}: {e}")
+            return None
+
+    def _send_image_key(self, receive_id_type: str, receive_id: str, image_key: str) -> bool:
+        """Send an image message with image_key."""
+        try:
+            request = CreateMessageRequest.builder() \
+                .receive_id_type(receive_id_type) \
+                .request_body(
+                    CreateMessageRequestBody.builder()
+                    .receive_id(receive_id)
+                    .msg_type("image")
+                    .content(json.dumps({"image_key": image_key}, ensure_ascii=False))
+                    .build()
+                ).build()
+            response = self._client.im.v1.message.create(request)
+            if not response.success():
+                logger.error(
+                    f"Failed to send Feishu image message: code={response.code}, "
+                    f"msg={response.msg}, log_id={response.get_log_id()}"
+                )
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"Error sending Feishu image message: {e}")
+            return False
+
+    def _send_file_key(self, receive_id_type: str, receive_id: str, file_key: str) -> bool:
+        """Send a file message with file_key."""
+        try:
+            request = CreateMessageRequest.builder() \
+                .receive_id_type(receive_id_type) \
+                .request_body(
+                    CreateMessageRequestBody.builder()
+                    .receive_id(receive_id)
+                    .msg_type("file")
+                    .content(json.dumps({"file_key": file_key}, ensure_ascii=False))
+                    .build()
+                ).build()
+            response = self._client.im.v1.message.create(request)
+            if not response.success():
+                logger.error(
+                    f"Failed to send Feishu file message: code={response.code}, "
+                    f"msg={response.msg}, log_id={response.get_log_id()}"
+                )
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"Error sending Feishu file message: {e}")
+            return False
+
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through Feishu."""
         if not self._client:
@@ -208,7 +352,36 @@ class FeishuChannel(BaseChannel):
                 receive_id_type = "chat_id"
             else:
                 receive_id_type = "open_id"
+
+            # Send attachments first (image/file), then send text content.
+            for media_path in msg.media:
+                path = Path(media_path).expanduser()
+                if not path.exists() or not path.is_file():
+                    logger.warning(f"Feishu attachment not found or not a file: {media_path}")
+                    continue
+
+                size = path.stat().st_size
+                if size <= 0:
+                    logger.warning(f"Feishu attachment is empty and will be skipped: {path}")
+                    continue
+                if size > self._MAX_FILE_BYTES:
+                    logger.warning(
+                        f"Feishu attachment exceeds 30MB and will be skipped: {path} ({size} bytes)"
+                    )
+                    continue
+
+                if self._is_uploadable_image(path) and size <= self._MAX_IMAGE_BYTES:
+                    image_key = self._upload_image(path)
+                    if image_key:
+                        self._send_image_key(receive_id_type, msg.chat_id, image_key)
+                else:
+                    file_key = self._upload_file(path)
+                    if file_key:
+                        self._send_file_key(receive_id_type, msg.chat_id, file_key)
             
+            if not msg.content:
+                return
+
             # Build card with markdown + table support
             elements = self._build_card_elements(msg.content)
             card = {
