@@ -255,10 +255,22 @@ class ExecToolConfig(BaseModel):
     timeout: int = 60
 
 
+class CodexToolConfig(BaseModel):
+    """Codex CLI tool configuration."""
+    enabled: bool = False
+    command: str = "codex"
+    timeout: int = 900
+    max_output_chars: int = 20000
+    default_sandbox: Literal["read-only", "workspace-write"] = "read-only"
+    allow_workspace_write: bool = True
+    allow_dangerous_full_access: bool = False
+
+
 class ToolsConfig(BaseModel):
     """Tools configuration."""
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
+    codex: CodexToolConfig = Field(default_factory=CodexToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
 
 

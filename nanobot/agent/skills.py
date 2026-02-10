@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 # Default builtin skills directory (relative to this file)
@@ -22,6 +23,7 @@ class SkillsLoader:
         self.workspace = workspace
         self.workspace_skills = workspace / "skills"
         self.builtin_skills = builtin_skills_dir or BUILTIN_SKILLS_DIR
+        self._bin_available_cache: dict[str, bool] = {}
     
     def list_skills(self, filter_unavailable: bool = True) -> list[dict[str, str]]:
         """
@@ -144,7 +146,7 @@ class SkillsLoader:
         missing = []
         requires = skill_meta.get("requires", {})
         for b in requires.get("bins", []):
-            if not shutil.which(b):
+            if not self._has_required_bin(b):
                 missing.append(f"CLI: {b}")
         for env in requires.get("env", []):
             if not os.environ.get(env):
@@ -178,12 +180,45 @@ class SkillsLoader:
         """Check if skill requirements are met (bins, env vars)."""
         requires = skill_meta.get("requires", {})
         for b in requires.get("bins", []):
-            if not shutil.which(b):
+            if not self._has_required_bin(b):
                 return False
         for env in requires.get("env", []):
             if not os.environ.get(env):
                 return False
         return True
+
+    def _has_required_bin(self, binary: str) -> bool:
+        """Check CLI availability on host, with WSL fallback on Windows."""
+        cached = self._bin_available_cache.get(binary)
+        if cached is not None:
+            return cached
+
+        available = bool(shutil.which(binary))
+        if not available and os.name == "nt":
+            available = self._has_wsl_bin(binary)
+
+        self._bin_available_cache[binary] = available
+        return available
+
+    def _has_wsl_bin(self, binary: str) -> bool:
+        """Check whether a binary exists in WSL."""
+        if not shutil.which("wsl"):
+            return False
+        if not re.fullmatch(r"[A-Za-z0-9._+-]+", binary):
+            return False
+
+        try:
+            result = subprocess.run(
+                ["wsl", "-e", "bash", "-lc", f"command -v {binary} >/dev/null 2>&1"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+        return result.returncode == 0
     
     def _get_skill_meta(self, name: str) -> dict:
         """Get nanobot metadata for a skill (cached in frontmatter)."""

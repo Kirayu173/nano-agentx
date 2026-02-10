@@ -14,9 +14,11 @@ from nanobot.providers.base import LLMProvider
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, ListDirTool
 from nanobot.agent.tools.shell import ExecTool
+from nanobot.agent.tools.codex import CodexRunTool
 from nanobot.agent.tools.todo import TodoTool
 from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.agent.tools.browser import BrowserRunTool
+from nanobot.config.schema import BrowserToolConfig, CodexToolConfig, ExecToolConfig, WebSearchConfig
 
 
 class SubagentManager:
@@ -34,16 +36,12 @@ class SubagentManager:
         workspace: Path,
         bus: MessageBus,
         model: str | None = None,
-        web_search_config: "WebSearchConfig | None" = None,
-        web_browser_config: "BrowserToolConfig | None" = None,
-        exec_config: "ExecToolConfig | None" = None,
+        web_search_config: WebSearchConfig | None = None,
+        web_browser_config: BrowserToolConfig | None = None,
+        exec_config: ExecToolConfig | None = None,
+        codex_config: CodexToolConfig | None = None,
         restrict_to_workspace: bool = False,
     ):
-        from nanobot.config.schema import (
-            BrowserToolConfig,
-            ExecToolConfig,
-            WebSearchConfig,
-        )
         self.provider = provider
         self.workspace = workspace
         self.bus = bus
@@ -51,6 +49,7 @@ class SubagentManager:
         self.web_search_config = web_search_config or WebSearchConfig()
         self.web_browser_config = web_browser_config or BrowserToolConfig()
         self.exec_config = exec_config or ExecToolConfig()
+        self.codex_config = codex_config or CodexToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
     
@@ -185,6 +184,12 @@ class SubagentManager:
             timeout=self.exec_config.timeout,
             restrict_to_workspace=self.restrict_to_workspace,
         ))
+        if self.codex_config.enabled:
+            tools.register(CodexRunTool(
+                workspace=self.workspace,
+                codex_config=self.codex_config,
+                restrict_to_workspace=self.restrict_to_workspace,
+            ))
         tools.register(TodoTool(workspace=self.workspace))
         tools.register(WebSearchTool(web_search_config=self.web_search_config))
         tools.register(WebFetchTool())

@@ -362,6 +362,7 @@ def gateway(
         web_search_config=config.tools.web.search,
         web_browser_config=config.tools.web.browser,
         exec_config=config.tools.exec,
+        codex_config=config.tools.codex,
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         redact_sensitive_output=config.security.redact_sensitive_output,
@@ -468,6 +469,7 @@ def agent(
         web_search_config=config.tools.web.search,
         web_browser_config=config.tools.web.browser,
         exec_config=config.tools.exec,
+        codex_config=config.tools.codex,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         redact_sensitive_output=config.security.redact_sensitive_output,
     )

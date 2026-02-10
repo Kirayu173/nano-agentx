@@ -42,6 +42,26 @@ exec(command: str, working_dir: str = None) -> str
 - Output is truncated at 10,000 characters
 - Optional `restrictToWorkspace` config to limit paths
 
+### codex_run
+Run Codex CLI non-interactively for coding tasks.
+```
+codex_run(
+  prompt: str,
+  mode: str = "exec",              # exec | review
+  working_dir: str = None,
+  sandbox: str = None,             # read-only | workspace-write | danger-full-access
+  model: str = None,
+  timeout_sec: int = None
+) -> str (JSON payload)
+```
+
+**Safety Notes:**
+- Disabled by default; enable via `tools.codex.enabled`.
+- Full access is controlled only by config:
+  - `tools.codex.allowDangerousFullAccess = true` => always run in full access mode
+- `danger-full-access` passes Codex bypass flag and should be used only for trusted tasks.
+- If `tools.restrictToWorkspace` is true, `working_dir` outside workspace is rejected.
+
 ## Web Access
 
 ### web_search

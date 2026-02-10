@@ -660,6 +660,35 @@ That's it! Environment variables, model prefixing, config matching, and `nanobot
 </details>
 
 
+### Codex CLI Tool (`codex_run`)
+
+Use the `codex_run` tool to invoke Codex CLI from within nanobot.
+
+> [!WARNING]
+> `danger-full-access` is highly privileged. Enable it only for trusted environments and tasks.
+
+```json
+{
+  "tools": {
+    "codex": {
+      "enabled": true,
+      "command": "codex",
+      "timeout": 900,
+      "maxOutputChars": 20000,
+      "defaultSandbox": "read-only",
+      "allowWorkspaceWrite": true,
+      "allowDangerousFullAccess": false
+    }
+  }
+}
+```
+
+Full access is controlled by config only:
+- `"allowDangerousFullAccess": true` enables full access for all `codex_run` calls.
+
+When enabled, nanobot invokes Codex with
+`--dangerously-bypass-approvals-and-sandbox`.
+
 ### Security
 
 > For production deployments, set `"restrictToWorkspace": true` in your config to sandbox the agent.
@@ -668,6 +697,8 @@ That's it! Environment variables, model prefixing, config matching, and `nanobot
 |--------|---------|-------------|
 | `tools.restrictToWorkspace` | `false` | When `true`, restricts **all** agent tools (shell, file read/write/edit, list) to the workspace directory. Prevents path traversal and out-of-scope access. |
 | `tools.web.browser.enabled` | `true` | Enables the Playwright-based `browser_run` tool for dynamic website automation. |
+| `tools.codex.enabled` | `false` | Enables the `codex_run` tool (Codex CLI integration). |
+| `tools.codex.allowDangerousFullAccess` | `false` | Enables full access mode for all `codex_run` calls. |
 | `security.redactSensitiveOutput` | `true` | Redacts sensitive output (paths, local endpoints, keys/tokens/secrets, prompt snippets, chat IDs) before sending responses to users. |
 | `channels.*.allowFrom` | `[]` (allow all) | Whitelist of user IDs. Empty = allow everyone; non-empty = only listed users can interact. |
 

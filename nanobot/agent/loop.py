@@ -11,6 +11,7 @@ from loguru import logger
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.browser import BrowserRunTool
+from nanobot.agent.tools.codex import CodexRunTool
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
 from nanobot.agent.tools.message import MessageTool
@@ -22,7 +23,7 @@ from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.config.loader import get_config_path
-from nanobot.config.schema import BrowserToolConfig, ExecToolConfig, WebSearchConfig
+from nanobot.config.schema import BrowserToolConfig, CodexToolConfig, ExecToolConfig, WebSearchConfig
 from nanobot.cron.service import CronService
 from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import SessionManager
@@ -53,6 +54,7 @@ class AgentLoop:
         web_search_config: WebSearchConfig | None = None,
         web_browser_config: BrowserToolConfig | None = None,
         exec_config: ExecToolConfig | None = None,
+        codex_config: CodexToolConfig | None = None,
         cron_service: CronService | None = None,
         restrict_to_workspace: bool = False,
         redact_sensitive_output: bool = True,
@@ -66,6 +68,7 @@ class AgentLoop:
         self.web_search_config = web_search_config or WebSearchConfig()
         self.web_browser_config = web_browser_config or BrowserToolConfig()
         self.exec_config = exec_config or ExecToolConfig()
+        self.codex_config = codex_config or CodexToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
         self.redactor = SensitiveOutputRedactor(
@@ -86,6 +89,7 @@ class AgentLoop:
             web_search_config=self.web_search_config,
             web_browser_config=self.web_browser_config,
             exec_config=self.exec_config,
+            codex_config=self.codex_config,
             restrict_to_workspace=restrict_to_workspace,
         )
         
@@ -107,6 +111,12 @@ class AgentLoop:
             timeout=self.exec_config.timeout,
             restrict_to_workspace=self.restrict_to_workspace,
         ))
+        if self.codex_config.enabled:
+            self.tools.register(CodexRunTool(
+                workspace=self.workspace,
+                codex_config=self.codex_config,
+                restrict_to_workspace=self.restrict_to_workspace,
+            ))
         
         # Web tools
         self.tools.register(WebSearchTool(web_search_config=self.web_search_config))
