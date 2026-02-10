@@ -5,10 +5,12 @@ import json
 import mimetypes
 import re
 import threading
+import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
+import httpx
 from loguru import logger
 
 from nanobot.bus.events import OutboundMessage
@@ -72,6 +74,8 @@ class FeishuChannel(BaseChannel):
         self._ws_thread: threading.Thread | None = None
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()  # Ordered dedup cache
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._tenant_access_token: str | None = None
+        self._tenant_access_token_expires_at: float = 0.0
     
     async def start(self) -> None:
         """Start the Feishu bot with WebSocket long connection."""
@@ -232,6 +236,102 @@ class FeishuChannel(BaseChannel):
         if mime and not mime.startswith("image/"):
             return False
         return True
+
+    @staticmethod
+    def _safe_segment(value: str, fallback: str = "unknown") -> str:
+        cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", value or "").strip("_")
+        return cleaned or fallback
+
+    @staticmethod
+    def _ext_from_content_type(content_type: str | None) -> str:
+        if not content_type:
+            return ".jpg"
+        mime = (content_type.split(";")[0] or "").strip().lower()
+        ext_map = {
+            "image/jpeg": ".jpg",
+            "image/jpg": ".jpg",
+            "image/png": ".png",
+            "image/webp": ".webp",
+            "image/gif": ".gif",
+            "image/bmp": ".bmp",
+            "image/tiff": ".tiff",
+            "image/heic": ".heic",
+        }
+        return ext_map.get(mime, ".jpg")
+
+    async def _get_tenant_access_token(self) -> str | None:
+        if self._tenant_access_token and time.time() < self._tenant_access_token_expires_at:
+            return self._tenant_access_token
+
+        url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
+        payload = {
+            "app_id": self.config.app_id,
+            "app_secret": self.config.app_secret,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:
+            logger.error(f"Failed to fetch Feishu tenant access token: {e}")
+            return None
+
+        if data.get("code") != 0:
+            logger.error(
+                "Feishu token API error: code={}, msg={}",
+                data.get("code"),
+                data.get("msg"),
+            )
+            return None
+
+        token = data.get("tenant_access_token")
+        expire = int(data.get("expire", 7200))
+        if not token:
+            logger.error("Feishu token API returned empty tenant_access_token")
+            return None
+
+        self._tenant_access_token = token
+        self._tenant_access_token_expires_at = time.time() + max(60, expire - 60)
+        return token
+
+    async def _download_image_resource(self, message_id: str, image_key: str) -> str | None:
+        token = await self._get_tenant_access_token()
+        if not token:
+            return None
+
+        safe_mid = self._safe_segment(message_id, "msg")
+        safe_key = self._safe_segment(image_key, "img")
+        url = f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}/resources/{image_key}"
+        headers = {"Authorization": f"Bearer {token}"}
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, params={"type": "image"}, headers=headers)
+            response.raise_for_status()
+            content = response.content
+            if not content:
+                logger.warning(
+                    "Feishu image download returned empty body: message_id={}, image_key={}",
+                    message_id,
+                    image_key,
+                )
+                return None
+
+            ext = self._ext_from_content_type(response.headers.get("content-type"))
+            media_dir = Path.home() / ".nanobot" / "media"
+            media_dir.mkdir(parents=True, exist_ok=True)
+            path = media_dir / f"feishu_{safe_mid[:24]}_{safe_key[:24]}{ext}"
+            path.write_bytes(content)
+            return str(path)
+        except Exception as e:
+            logger.warning(
+                "Failed to download Feishu image: message_id={}, image_key={}, error={}",
+                message_id,
+                image_key,
+                e,
+            )
+            return None
 
     def _upload_image(self, path: Path) -> str | None:
         """Upload image via /open-apis/im/v1/images and return image_key."""
@@ -452,11 +552,26 @@ class FeishuChannel(BaseChannel):
             await self._add_reaction(message_id, "THUMBSUP")
             
             # Parse message content
+            media_paths: list[str] = []
             if msg_type == "text":
                 try:
                     content = json.loads(message.content).get("text", "")
                 except json.JSONDecodeError:
                     content = message.content or ""
+            elif msg_type == "image":
+                content = MSG_TYPE_MAP["image"]
+                image_key = None
+                try:
+                    image_key = json.loads(message.content).get("image_key")
+                except json.JSONDecodeError:
+                    image_key = None
+
+                if image_key:
+                    local_path = await self._download_image_resource(message_id, image_key)
+                    if local_path:
+                        media_paths.append(local_path)
+                    else:
+                        content = "[image: download failed]"
             else:
                 content = MSG_TYPE_MAP.get(msg_type, f"[{msg_type}]")
             
@@ -469,6 +584,7 @@ class FeishuChannel(BaseChannel):
                 sender_id=sender_id,
                 chat_id=reply_to,
                 content=content,
+                media=media_paths,
                 metadata={
                     "message_id": message_id,
                     "chat_type": chat_type,

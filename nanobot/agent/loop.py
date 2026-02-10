@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import mimetypes
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
@@ -38,6 +40,8 @@ class AgentLoop:
     4. Executes tool calls
     5. Sends responses back
     """
+    _RECENT_IMAGE_META_KEY = "_recent_image_context"
+    _RECENT_IMAGE_FOLLOWUP_TURNS = 2
     
     def __init__(
         self,
@@ -194,6 +198,77 @@ class AgentLoop:
 
         return normalized
 
+    @staticmethod
+    def _ensure_session_metadata(session: Any) -> dict[str, Any]:
+        """Return mutable metadata dict for a session, creating it if needed."""
+        metadata = getattr(session, "metadata", None)
+        if isinstance(metadata, dict):
+            return metadata
+        metadata = {}
+        try:
+            session.metadata = metadata
+        except Exception:
+            # Fallback for custom session objects without writable metadata.
+            pass
+        return metadata
+
+    @staticmethod
+    def _is_image_file(path: str) -> bool:
+        """Check whether path points to a readable image file."""
+        p = Path(path)
+        if not p.exists() or not p.is_file():
+            return False
+        mime, _ = mimetypes.guess_type(str(p))
+        return bool(mime and mime.startswith("image/"))
+
+    def _extract_latest_image(self, media: list[str] | None) -> str | None:
+        """Pick the latest image path from a media list."""
+        if not media:
+            return None
+        for candidate in reversed(media):
+            if not isinstance(candidate, str):
+                continue
+            text = candidate.strip()
+            if not text:
+                continue
+            if self._is_image_file(text):
+                return str(Path(text).resolve(strict=False))
+        return None
+
+    def _remember_recent_image(self, session: Any, image_path: str) -> None:
+        """Store latest image for short follow-up reuse."""
+        metadata = self._ensure_session_metadata(session)
+        metadata[self._RECENT_IMAGE_META_KEY] = {
+            "path": image_path,
+            "turns_left": self._RECENT_IMAGE_FOLLOWUP_TURNS,
+        }
+
+    def _consume_recent_image(self, session: Any) -> str | None:
+        """Reuse recent image for one turn and decrement remaining turns."""
+        metadata = self._ensure_session_metadata(session)
+        raw = metadata.get(self._RECENT_IMAGE_META_KEY)
+        if not isinstance(raw, dict):
+            metadata.pop(self._RECENT_IMAGE_META_KEY, None)
+            return None
+
+        path = raw.get("path")
+        turns_left = raw.get("turns_left")
+        if not isinstance(path, str) or not isinstance(turns_left, int) or turns_left <= 0:
+            metadata.pop(self._RECENT_IMAGE_META_KEY, None)
+            return None
+
+        if not self._is_image_file(path):
+            metadata.pop(self._RECENT_IMAGE_META_KEY, None)
+            return None
+
+        turns_left -= 1
+        if turns_left <= 0:
+            metadata.pop(self._RECENT_IMAGE_META_KEY, None)
+        else:
+            metadata[self._RECENT_IMAGE_META_KEY] = {"path": path, "turns_left": turns_left}
+
+        return path
+
     def _redact_outbound(self, msg: OutboundMessage) -> OutboundMessage:
         """Return a copy of outbound message with redacted content."""
         return OutboundMessage(
@@ -263,6 +338,17 @@ class AgentLoop:
         
         # Get or create session
         session = self.sessions.get_or_create(msg.session_key)
+
+        # Keep latest image context for 1-2 follow-up turns in the same session.
+        incoming_media = self._normalize_media_paths(msg.media)
+        effective_media = list(incoming_media)
+        latest_image = self._extract_latest_image(incoming_media)
+        if latest_image:
+            self._remember_recent_image(session, latest_image)
+        else:
+            recent_image = self._consume_recent_image(session)
+            if recent_image and recent_image not in effective_media:
+                effective_media.append(recent_image)
         
         # Update tool contexts
         message_tool = self.tools.get("message")
@@ -281,7 +367,7 @@ class AgentLoop:
         messages = self.context.build_messages(
             history=session.get_history(),
             current_message=msg.content,
-            media=msg.media if msg.media else None,
+            media=effective_media if effective_media else None,
             channel=msg.channel,
             chat_id=msg.chat_id,
         )

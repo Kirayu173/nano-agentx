@@ -72,6 +72,33 @@ def _make_channel(client: _FakeFeishuClient) -> FeishuChannel:
     return channel
 
 
+def _make_inbound_event(
+    *,
+    message_id: str = "om_test",
+    chat_id: str = "oc_test",
+    chat_type: str = "p2p",
+    msg_type: str = "text",
+    content: str = '{"text":"hello"}',
+    sender_id: str = "ou_sender",
+    sender_type: str = "user",
+):
+    return SimpleNamespace(
+        event=SimpleNamespace(
+            message=SimpleNamespace(
+                message_id=message_id,
+                chat_id=chat_id,
+                chat_type=chat_type,
+                message_type=msg_type,
+                content=content,
+            ),
+            sender=SimpleNamespace(
+                sender_type=sender_type,
+                sender_id=SimpleNamespace(open_id=sender_id),
+            ),
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_send_text_only_uses_interactive_message() -> None:
     client = _FakeFeishuClient()
@@ -187,3 +214,63 @@ async def test_attachment_failure_does_not_block_following_messages(tmp_path: Pa
 def test_feishu_sdk_available_for_upload_requests() -> None:
     # Guard test to ensure import branch with upload request classes is active.
     assert feishu_module.FEISHU_AVAILABLE is True
+
+
+@pytest.mark.asyncio
+async def test_inbound_image_downloaded_and_forwarded_as_media(monkeypatch, tmp_path: Path) -> None:
+    client = _FakeFeishuClient()
+    channel = _make_channel(client)
+    image_path = tmp_path / "inbound.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\npayload")
+
+    async def _noop_reaction(*_args, **_kwargs):
+        return None
+
+    async def _fake_download(_message_id: str, _image_key: str) -> str:
+        return str(image_path)
+
+    monkeypatch.setattr(channel, "_add_reaction", _noop_reaction)
+    monkeypatch.setattr(channel, "_download_image_resource", _fake_download)
+
+    event = _make_inbound_event(
+        msg_type="image",
+        content='{"image_key":"img_123"}',
+        sender_id="ou_user",
+    )
+
+    await channel._on_message(event)
+    inbound = await channel.bus.consume_inbound()
+
+    assert inbound.channel == "feishu"
+    assert inbound.sender_id == "ou_user"
+    assert inbound.chat_id == "ou_user"  # p2p routes by sender open_id
+    assert inbound.content == "[image]"
+    assert inbound.media == [str(image_path)]
+    assert inbound.metadata["msg_type"] == "image"
+
+
+@pytest.mark.asyncio
+async def test_inbound_image_download_failure_degrades_gracefully(monkeypatch) -> None:
+    client = _FakeFeishuClient()
+    channel = _make_channel(client)
+
+    async def _noop_reaction(*_args, **_kwargs):
+        return None
+
+    async def _fake_download(_message_id: str, _image_key: str) -> str | None:
+        return None
+
+    monkeypatch.setattr(channel, "_add_reaction", _noop_reaction)
+    monkeypatch.setattr(channel, "_download_image_resource", _fake_download)
+
+    event = _make_inbound_event(
+        msg_type="image",
+        content='{"image_key":"img_404"}',
+        sender_id="ou_user",
+    )
+
+    await channel._on_message(event)
+    inbound = await channel.bus.consume_inbound()
+
+    assert inbound.content == "[image: download failed]"
+    assert inbound.media == []

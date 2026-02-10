@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ class ScriptedProvider(LLMProvider):
     ):
         super().__init__(api_key=api_key, api_base=api_base)
         self._responses = responses
+        self.calls: list[list[dict[str, Any]]] = []
 
     async def chat(
         self,
@@ -34,6 +36,7 @@ class ScriptedProvider(LLMProvider):
         max_tokens: int = 4096,
         temperature: float = 0.7,
     ) -> LLMResponse:
+        self.calls.append(copy.deepcopy(messages))
         if not self._responses:
             return LLMResponse(content="no scripted response")
         return self._responses.pop(0)
@@ -46,6 +49,7 @@ class ScriptedProvider(LLMProvider):
 class InMemorySession:
     key: str
     messages: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
         self.messages.append({"role": role, "content": content, **kwargs})
@@ -66,6 +70,18 @@ class InMemorySessionManager:
 
     def save(self, session: InMemorySession) -> None:
         self._sessions[session.key] = session
+
+
+def _latest_user_has_image(messages: list[dict[str, Any]]) -> bool:
+    if not messages:
+        return False
+    user_content = messages[-1].get("content")
+    if not isinstance(user_content, list):
+        return False
+    return any(
+        isinstance(part, dict) and part.get("type") == "image_url"
+        for part in user_content
+    )
 
 
 def _build_loop(
@@ -242,3 +258,59 @@ async def test_system_message_flow_saves_redacted_history(tmp_path: Path) -> Non
         assert str(workspace) not in entry["content"]
         assert "abc123" not in entry["content"]
         assert "sk-system-secret-123" not in entry["content"]
+
+
+@pytest.mark.asyncio
+async def test_recent_image_is_reused_for_two_followups_then_expires(tmp_path: Path) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir(parents=True, exist_ok=True)
+    image = workspace / "vision.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\npayload")
+
+    provider = ScriptedProvider(
+        [
+            LLMResponse(content="round1"),
+            LLMResponse(content="round2"),
+            LLMResponse(content="round3"),
+            LLMResponse(content="round4"),
+        ]
+    )
+    sessions = InMemorySessionManager()
+    loop = _build_loop(workspace, provider, session_manager=sessions)
+
+    first = InboundMessage(
+        channel="feishu",
+        sender_id="u1",
+        chat_id="ou_test",
+        content="请看这张图",
+        media=[str(image)],
+    )
+    second = InboundMessage(
+        channel="feishu",
+        sender_id="u1",
+        chat_id="ou_test",
+        content="第一个追问",
+    )
+    third = InboundMessage(
+        channel="feishu",
+        sender_id="u1",
+        chat_id="ou_test",
+        content="第二个追问",
+    )
+    fourth = InboundMessage(
+        channel="feishu",
+        sender_id="u1",
+        chat_id="ou_test",
+        content="第三个追问",
+    )
+
+    await loop._process_message(first)
+    await loop._process_message(second)
+    await loop._process_message(third)
+    await loop._process_message(fourth)
+
+    assert len(provider.calls) == 4
+    assert _latest_user_has_image(provider.calls[0]) is True
+    assert _latest_user_has_image(provider.calls[1]) is True
+    assert _latest_user_has_image(provider.calls[2]) is True
+    assert _latest_user_has_image(provider.calls[3]) is False
