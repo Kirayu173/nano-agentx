@@ -2,11 +2,13 @@ from types import SimpleNamespace
 from typing import Any
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
 from nanobot.agent.tools.base import Tool
 from nanobot.agent.tools.cron import CronTool
+from nanobot.agent.tools.filesystem import WriteFileTool, _resolve_path
 from nanobot.agent.tools.registry import ToolRegistry
 
 
@@ -233,3 +235,42 @@ async def test_cron_tool_rejects_conflicting_schedule_inputs() -> None:
 
     assert conflict == "Error: specify exactly one of every_seconds, cron_expr, in_seconds, or at"
     assert service.add_calls == []
+
+
+def test_filesystem_resolve_relative_path_uses_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    resolved = _resolve_path("memory/MEMORY.md", workspace=workspace)
+
+    assert resolved == (workspace / "memory" / "MEMORY.md").resolve(strict=False)
+
+
+def test_filesystem_resolve_absolute_path_unchanged(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    absolute = (tmp_path / "absolute.txt").resolve(strict=False)
+
+    resolved = _resolve_path(str(absolute), workspace=workspace)
+
+    assert resolved == absolute
+
+
+def test_filesystem_resolve_blocks_outside_allowed_dir(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    with pytest.raises(PermissionError):
+        _resolve_path("../outside.txt", allowed_dir=workspace, workspace=workspace)
+
+
+@pytest.mark.asyncio
+async def test_write_file_tool_relative_path_writes_under_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    tool = WriteFileTool(workspace=workspace)
+
+    result = await tool.execute(path="memory/MEMORY.md", content="hello")
+
+    assert "Successfully wrote" in result
+    assert (workspace / "memory" / "MEMORY.md").read_text(encoding="utf-8") == "hello"

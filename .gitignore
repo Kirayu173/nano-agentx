@@ -37,4 +37,5 @@ workspace/.nanobot/
 workspace/.tmp-playwright-browsers/
 logs/
 gateway.log
+/logs/gateway.log
 .env

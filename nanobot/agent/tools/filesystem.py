@@ -6,19 +6,34 @@ from typing import Any
 from nanobot.agent.tools.base import Tool
 
 
-def _resolve_path(path: str, allowed_dir: Path | None = None) -> Path:
-    """Resolve path and optionally enforce directory restriction."""
-    resolved = Path(path).expanduser().resolve()
-    if allowed_dir and not str(resolved).startswith(str(allowed_dir.resolve())):
-        raise PermissionError(f"Path {path} is outside allowed directory {allowed_dir}")
+def _resolve_path(
+    path: str,
+    allowed_dir: Path | None = None,
+    workspace: Path | None = None,
+) -> Path:
+    """Resolve a path and optionally enforce directory restriction."""
+    raw = Path(path).expanduser()
+    if raw.is_absolute():
+        resolved = raw.resolve(strict=False)
+    else:
+        base = (workspace or Path.cwd()).expanduser().resolve(strict=False)
+        resolved = (base / raw).resolve(strict=False)
+
+    if allowed_dir:
+        root = allowed_dir.expanduser().resolve(strict=False)
+        try:
+            resolved.relative_to(root)
+        except ValueError as e:
+            raise PermissionError(f"Path {path} is outside allowed directory {allowed_dir}") from e
     return resolved
 
 
 class ReadFileTool(Tool):
     """Tool to read file contents."""
     
-    def __init__(self, allowed_dir: Path | None = None):
+    def __init__(self, allowed_dir: Path | None = None, workspace: Path | None = None):
         self._allowed_dir = allowed_dir
+        self._workspace = workspace
 
     @property
     def name(self) -> str:
@@ -43,7 +58,7 @@ class ReadFileTool(Tool):
     
     async def execute(self, path: str, **kwargs: Any) -> str:
         try:
-            file_path = _resolve_path(path, self._allowed_dir)
+            file_path = _resolve_path(path, self._allowed_dir, self._workspace)
             if not file_path.exists():
                 return f"Error: File not found: {path}"
             if not file_path.is_file():
@@ -60,8 +75,9 @@ class ReadFileTool(Tool):
 class WriteFileTool(Tool):
     """Tool to write content to a file."""
     
-    def __init__(self, allowed_dir: Path | None = None):
+    def __init__(self, allowed_dir: Path | None = None, workspace: Path | None = None):
         self._allowed_dir = allowed_dir
+        self._workspace = workspace
 
     @property
     def name(self) -> str:
@@ -90,7 +106,7 @@ class WriteFileTool(Tool):
     
     async def execute(self, path: str, content: str, **kwargs: Any) -> str:
         try:
-            file_path = _resolve_path(path, self._allowed_dir)
+            file_path = _resolve_path(path, self._allowed_dir, self._workspace)
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
             return f"Successfully wrote {len(content)} bytes to {path}"
@@ -103,8 +119,9 @@ class WriteFileTool(Tool):
 class EditFileTool(Tool):
     """Tool to edit a file by replacing text."""
     
-    def __init__(self, allowed_dir: Path | None = None):
+    def __init__(self, allowed_dir: Path | None = None, workspace: Path | None = None):
         self._allowed_dir = allowed_dir
+        self._workspace = workspace
 
     @property
     def name(self) -> str:
@@ -137,7 +154,7 @@ class EditFileTool(Tool):
     
     async def execute(self, path: str, old_text: str, new_text: str, **kwargs: Any) -> str:
         try:
-            file_path = _resolve_path(path, self._allowed_dir)
+            file_path = _resolve_path(path, self._allowed_dir, self._workspace)
             if not file_path.exists():
                 return f"Error: File not found: {path}"
             
@@ -164,8 +181,9 @@ class EditFileTool(Tool):
 class ListDirTool(Tool):
     """Tool to list directory contents."""
     
-    def __init__(self, allowed_dir: Path | None = None):
+    def __init__(self, allowed_dir: Path | None = None, workspace: Path | None = None):
         self._allowed_dir = allowed_dir
+        self._workspace = workspace
 
     @property
     def name(self) -> str:
@@ -190,7 +208,7 @@ class ListDirTool(Tool):
     
     async def execute(self, path: str, **kwargs: Any) -> str:
         try:
-            dir_path = _resolve_path(path, self._allowed_dir)
+            dir_path = _resolve_path(path, self._allowed_dir, self._workspace)
             if not dir_path.exists():
                 return f"Error: Directory not found: {path}"
             if not dir_path.is_dir():
