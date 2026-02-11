@@ -1,2 +1,11 @@
-Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run Chr(34) & "D:\Work\nano-agentx\scripts\start_gateway.bat" & Chr(34) & " --hidden-run", 0, False
+Option Explicit
+
+Dim shell, fso, scriptDir, batPath, cmd
+Set shell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+
+scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
+batPath = scriptDir & "\start_gateway.bat"
+cmd = "cmd /c """ & batPath & """ --hidden-run"
+
+shell.Run cmd, 0, False

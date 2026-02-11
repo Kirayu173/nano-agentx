@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 from typing import Any
+import time
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -147,6 +149,51 @@ async def test_cron_tool_add_task_mode_uses_agent_turn_payload() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cron_tool_add_in_seconds_creates_one_time_job() -> None:
+    service = FakeCronService()
+    tool = CronTool(service)  # type: ignore[arg-type]
+    tool.set_context("feishu", "ou_test")
+
+    before_ms = int(time.time() * 1000)
+    result = await tool.execute(
+        action="add",
+        message="Drink water",
+        mode="reminder",
+        in_seconds=120,
+    )
+    after_ms = int(time.time() * 1000)
+
+    assert "one-time job" in result
+    call = service.add_calls[0]
+    assert call["schedule"].kind == "at"
+    assert call["delete_after_run"] is True
+    expected_min = before_ms + 120000
+    expected_max = after_ms + 120000 + 2000
+    assert expected_min <= (call["schedule"].at_ms or 0) <= expected_max
+
+
+@pytest.mark.asyncio
+async def test_cron_tool_add_at_creates_one_time_job() -> None:
+    service = FakeCronService()
+    tool = CronTool(service)  # type: ignore[arg-type]
+    tool.set_context("telegram", "chat_1")
+
+    dt = (datetime.now().astimezone() + timedelta(minutes=3)).replace(microsecond=0)
+    result = await tool.execute(
+        action="add",
+        message="Stand up",
+        mode="reminder",
+        at=dt.isoformat(),
+    )
+
+    assert "one-time job" in result
+    call = service.add_calls[0]
+    assert call["schedule"].kind == "at"
+    assert call["delete_after_run"] is True
+    assert abs((call["schedule"].at_ms or 0) - int(dt.timestamp() * 1000)) < 2000
+
+
+@pytest.mark.asyncio
 async def test_cron_tool_rejects_invalid_mode_and_non_positive_interval() -> None:
     service = FakeCronService()
     tool = CronTool(service)  # type: ignore[arg-type]
@@ -167,4 +214,22 @@ async def test_cron_tool_rejects_invalid_mode_and_non_positive_interval() -> Non
 
     assert invalid_mode == "Error: mode must be 'reminder' or 'task'"
     assert invalid_interval == "Error: every_seconds must be > 0"
+    assert service.add_calls == []
+
+
+@pytest.mark.asyncio
+async def test_cron_tool_rejects_conflicting_schedule_inputs() -> None:
+    service = FakeCronService()
+    tool = CronTool(service)  # type: ignore[arg-type]
+    tool.set_context("feishu", "ou_test")
+
+    conflict = await tool.execute(
+        action="add",
+        message="hello",
+        mode="reminder",
+        every_seconds=60,
+        in_seconds=120,
+    )
+
+    assert conflict == "Error: specify exactly one of every_seconds, cron_expr, in_seconds, or at"
     assert service.add_calls == []

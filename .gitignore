@@ -35,3 +35,6 @@ botpy.log
 # Runtime artifacts
 workspace/.nanobot/
 workspace/.tmp-playwright-browsers/
+logs/
+gateway.log
+.env

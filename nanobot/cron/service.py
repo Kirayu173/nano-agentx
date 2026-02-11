@@ -4,8 +4,10 @@ import asyncio
 import json
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Coroutine
+from zoneinfo import ZoneInfo
 
 from loguru import logger
 
@@ -30,9 +32,19 @@ def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
     if schedule.kind == "cron" and schedule.expr:
         try:
             from croniter import croniter
-            cron = croniter(schedule.expr, time.time())
-            next_time = cron.get_next()
-            return int(next_time * 1000)
+
+            base_dt = datetime.fromtimestamp(now_ms / 1000).astimezone()
+            if schedule.tz:
+                try:
+                    base_dt = base_dt.astimezone(ZoneInfo(schedule.tz))
+                except Exception:
+                    logger.warning(f"Invalid cron timezone '{schedule.tz}', fallback to local timezone")
+
+            next_dt = croniter(schedule.expr, base_dt).get_next(datetime)
+            if next_dt.tzinfo is None:
+                # Keep behavior deterministic when croniter returns naive datetime.
+                next_dt = next_dt.replace(tzinfo=base_dt.tzinfo)
+            return int(next_dt.timestamp() * 1000)
         except Exception:
             return None
     

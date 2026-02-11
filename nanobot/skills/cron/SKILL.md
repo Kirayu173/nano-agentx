@@ -5,7 +5,7 @@ description: Schedule reminders and recurring tasks.
 
 # Cron
 
-Use the `cron` tool to schedule reminders or recurring tasks.
+Use the `cron` tool to schedule one-time reminders or recurring tasks.
 
 ## Two Modes
 
@@ -14,7 +14,12 @@ Use the `cron` tool to schedule reminders or recurring tasks.
 
 ## Examples
 
-Fixed reminder:
+One-time reminder in 2 minutes:
+```
+cron(action="add", mode="reminder", message="Time to drink water!", in_seconds=120)
+```
+
+Fixed recurring reminder:
 ```
 cron(action="add", mode="reminder", message="Time to take a break!", every_seconds=1200)
 ```
@@ -37,6 +42,8 @@ cron(action="remove", job_id="abc123")
 | User says | Parameters |
 |-----------|------------|
 | every 20 minutes | every_seconds: 1200 |
+| in 2 minutes | in_seconds: 120 |
+| at 2026-02-11 09:00 | at: "2026-02-11T09:00:00" |
 | every hour | every_seconds: 3600 |
 | every day at 8am | cron_expr: "0 8 * * *" |
 | weekdays at 5pm | cron_expr: "0 17 * * 1-5" |

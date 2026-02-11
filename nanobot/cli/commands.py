@@ -774,6 +774,7 @@ def cron_add(
     from nanobot.cron.types import CronSchedule
     
     # Determine schedule type
+    delete_after_run = False
     if every:
         schedule = CronSchedule(kind="every", every_ms=every * 1000)
     elif cron_expr:
@@ -782,6 +783,7 @@ def cron_add(
         import datetime
         dt = datetime.datetime.fromisoformat(at)
         schedule = CronSchedule(kind="at", at_ms=int(dt.timestamp() * 1000))
+        delete_after_run = True
     else:
         console.print("[red]Error: Must specify --every, --cron, or --at[/red]")
         raise typer.Exit(1)
@@ -796,6 +798,7 @@ def cron_add(
         deliver=deliver,
         to=to,
         channel=channel,
+        delete_after_run=delete_after_run,
     )
     
     console.print(f"[green]✓[/green] Added job '{job.name}' ({job.id})")
