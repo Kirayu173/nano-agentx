@@ -1,9 +1,9 @@
 name: Daily Upstream Main Diff Report
 
 on:
-  # 09:00 Asia/Shanghai
+  # 22:50 Asia/Shanghai
   schedule:
-    - cron: "0 1 * * *"  # 09:00 UTC+8
+    - cron: "50 14 * * *"  # 22:50 UTC+8
   workflow_dispatch:
 
 permissions:
