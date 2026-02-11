@@ -42,6 +42,11 @@ class CronTool(Tool):
                     "type": "string",
                     "description": "Reminder message (for add)"
                 },
+                "mode": {
+                    "type": "string",
+                    "enum": ["reminder", "task"],
+                    "description": "reminder: deliver message directly; task: execute through agent each run (default: reminder)"
+                },
                 "every_seconds": {
                     "type": "integer",
                     "description": "Interval in seconds (for recurring tasks)"
@@ -62,42 +67,55 @@ class CronTool(Tool):
         self,
         action: str,
         message: str = "",
+        mode: str = "reminder",
         every_seconds: int | None = None,
         cron_expr: str | None = None,
         job_id: str | None = None,
         **kwargs: Any
     ) -> str:
         if action == "add":
-            return self._add_job(message, every_seconds, cron_expr)
+            return self._add_job(message, mode, every_seconds, cron_expr)
         elif action == "list":
             return self._list_jobs()
         elif action == "remove":
             return self._remove_job(job_id)
         return f"Unknown action: {action}"
     
-    def _add_job(self, message: str, every_seconds: int | None, cron_expr: str | None) -> str:
+    def _add_job(
+        self,
+        message: str,
+        mode: str,
+        every_seconds: int | None,
+        cron_expr: str | None,
+    ) -> str:
         if not message:
             return "Error: message is required for add"
         if not self._channel or not self._chat_id:
             return "Error: no session context (channel/chat_id)"
+        if mode not in {"reminder", "task"}:
+            return "Error: mode must be 'reminder' or 'task'"
         
         # Build schedule
-        if every_seconds:
+        if every_seconds is not None:
+            if every_seconds <= 0:
+                return "Error: every_seconds must be > 0"
             schedule = CronSchedule(kind="every", every_ms=every_seconds * 1000)
         elif cron_expr:
             schedule = CronSchedule(kind="cron", expr=cron_expr)
         else:
             return "Error: either every_seconds or cron_expr is required"
         
+        payload_kind = "system_event" if mode == "reminder" else "agent_turn"
         job = self._cron.add_job(
             name=message[:30],
             schedule=schedule,
             message=message,
+            payload_kind=payload_kind,
             deliver=True,
             channel=self._channel,
             to=self._chat_id,
         )
-        return f"Created job '{job.name}' (id: {job.id})"
+        return f"Created job '{job.name}' (id: {job.id}, mode: {mode})"
     
     def _list_jobs(self) -> str:
         jobs = self._cron.list_jobs()

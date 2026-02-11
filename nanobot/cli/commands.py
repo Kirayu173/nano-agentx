@@ -341,7 +341,11 @@ def gateway(
         import logging
         logging.basicConfig(level=logging.DEBUG)
     
-    console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
+    try:
+        console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
+    except UnicodeEncodeError:
+        # Some Windows scheduled-task consoles still use legacy encodings.
+        print(f"Starting nanobot gateway on port {port}...")
     
     config = load_config()
     bus = MessageBus()
@@ -372,6 +376,17 @@ def gateway(
     # Set cron callback (needs agent)
     async def on_cron_job(job: CronJob) -> str | None:
         """Execute a cron job through the agent."""
+        # "system_event" jobs are plain reminders and should be delivered directly.
+        if job.payload.kind == "system_event":
+            if job.payload.deliver and job.payload.to:
+                from nanobot.bus.events import OutboundMessage
+                await bus.publish_outbound(OutboundMessage(
+                    channel=job.payload.channel or "cli",
+                    chat_id=job.payload.to,
+                    content=job.payload.message or ""
+                ))
+            return job.payload.message
+
         response = await agent.process_direct(
             job.payload.message,
             session_key=f"cron:{job.id}",

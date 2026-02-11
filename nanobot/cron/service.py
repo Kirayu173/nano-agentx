@@ -259,6 +259,7 @@ class CronService:
         name: str,
         schedule: CronSchedule,
         message: str,
+        payload_kind: str = "agent_turn",
         deliver: bool = False,
         channel: str | None = None,
         to: str | None = None,
@@ -268,13 +269,15 @@ class CronService:
         store = self._load_store()
         now = _now_ms()
         
+        kind = payload_kind if payload_kind in {"system_event", "agent_turn"} else "agent_turn"
+
         job = CronJob(
             id=str(uuid.uuid4())[:8],
             name=name,
             enabled=True,
             schedule=schedule,
             payload=CronPayload(
-                kind="agent_turn",
+                kind=kind,
                 message=message,
                 deliver=deliver,
                 channel=channel,

@@ -1,6 +1,10 @@
+from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.registry import ToolRegistry
 
 
@@ -86,3 +90,81 @@ async def test_registry_returns_validation_error() -> None:
     reg.register(SampleTool())
     result = await reg.execute("sample", {"query": "hi"})
     assert "Invalid parameters" in result
+
+
+class FakeCronService:
+    def __init__(self) -> None:
+        self.add_calls: list[dict[str, Any]] = []
+
+    def add_job(self, **kwargs: Any) -> SimpleNamespace:
+        self.add_calls.append(kwargs)
+        return SimpleNamespace(name=kwargs["name"], id="job-123")
+
+    def list_jobs(self, include_disabled: bool = False) -> list[Any]:
+        return []
+
+    def remove_job(self, job_id: str) -> bool:
+        return False
+
+
+@pytest.mark.asyncio
+async def test_cron_tool_add_defaults_to_reminder_mode() -> None:
+    service = FakeCronService()
+    tool = CronTool(service)  # type: ignore[arg-type]
+    tool.set_context("feishu", "ou_test")
+
+    result = await tool.execute(action="add", message="Drink water", every_seconds=60)
+
+    assert "mode: reminder" in result
+    assert len(service.add_calls) == 1
+    call = service.add_calls[0]
+    assert call["payload_kind"] == "system_event"
+    assert call["deliver"] is True
+    assert call["channel"] == "feishu"
+    assert call["to"] == "ou_test"
+    assert call["schedule"].kind == "every"
+    assert call["schedule"].every_ms == 60000
+
+
+@pytest.mark.asyncio
+async def test_cron_tool_add_task_mode_uses_agent_turn_payload() -> None:
+    service = FakeCronService()
+    tool = CronTool(service)  # type: ignore[arg-type]
+    tool.set_context("telegram", "chat_1")
+
+    result = await tool.execute(
+        action="add",
+        message="Check repo status and report",
+        mode="task",
+        cron_expr="0 9 * * *",
+    )
+
+    assert "mode: task" in result
+    call = service.add_calls[0]
+    assert call["payload_kind"] == "agent_turn"
+    assert call["schedule"].kind == "cron"
+    assert call["schedule"].expr == "0 9 * * *"
+
+
+@pytest.mark.asyncio
+async def test_cron_tool_rejects_invalid_mode_and_non_positive_interval() -> None:
+    service = FakeCronService()
+    tool = CronTool(service)  # type: ignore[arg-type]
+    tool.set_context("feishu", "ou_test")
+
+    invalid_mode = await tool.execute(
+        action="add",
+        message="hello",
+        mode="unknown",
+        every_seconds=10,
+    )
+    invalid_interval = await tool.execute(
+        action="add",
+        message="hello",
+        mode="reminder",
+        every_seconds=0,
+    )
+
+    assert invalid_mode == "Error: mode must be 'reminder' or 'task'"
+    assert invalid_interval == "Error: every_seconds must be > 0"
+    assert service.add_calls == []

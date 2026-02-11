@@ -554,7 +554,7 @@ class AgentLoop:
     async def process_direct(
         self,
         content: str,
-        session_key: str = "cli:direct",
+        session_key: str | None = None,
         channel: str = "cli",
         chat_id: str = "direct",
     ) -> str:
@@ -574,7 +574,8 @@ class AgentLoop:
             channel=channel,
             sender_id="user",
             chat_id=chat_id,
-            content=content
+            content=content,
+            session_key_override=session_key or None,
         )
         
         response = await self._process_message(msg)

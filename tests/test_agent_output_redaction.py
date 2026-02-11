@@ -135,6 +135,26 @@ async def test_process_direct_redacts_response_and_saved_assistant_content(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_process_direct_honors_session_key_override(tmp_path: Path) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    provider = ScriptedProvider([LLMResponse(content="ok")])
+    sessions = InMemorySessionManager()
+    loop = _build_loop(workspace, provider, session_manager=sessions)
+
+    await loop.process_direct(
+        "run cron payload",
+        session_key="cron:test-job",
+        channel="feishu",
+        chat_id="ou_test",
+    )
+
+    assert "cron:test-job" in sessions._sessions
+    assert "feishu:ou_test" not in sessions._sessions
+
+
+@pytest.mark.asyncio
 async def test_message_tool_outbound_content_is_redacted(tmp_path: Path) -> None:
     workspace = (tmp_path / "workspace").resolve()
     workspace.mkdir(parents=True, exist_ok=True)
