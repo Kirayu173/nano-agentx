@@ -68,3 +68,33 @@ D:\Development\Python\Envs\nano-bot\Lib\site-packages\lark_oapi\ws\pb\google\__i
    - 也就是说：  
      - 你...
 2026-02-11 11:07:18.548 | DEBUG    | nanobot.channels.feishu:send:511 - Feishu message sent to ou_201ada33e66e65c23a9294a18f4385cd
+[周三 2026/02/11 12:19:07.49] Starting nanobot gateway... 
+🐈 Starting nanobot gateway on port 18790...
+D:\Development\Python\Envs\nano-bot\Lib\site-packages\lark_oapi\ws\pb\google\__init__.py:2: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  __import__('pkg_resources').declare_namespace(__name__)
+2026-02-11 12:19:16.135 | INFO     | nanobot.channels.manager:_init_channels:84 - Feishu channel enabled
+✓ Channels enabled: feishu
+✓ Heartbeat: every 30m
+2026-02-11 12:19:16.139 | INFO     | nanobot.cron.service:start:154 - Cron service started with 0 jobs
+2026-02-11 12:19:16.139 | INFO     | nanobot.heartbeat.service:start:81 - Heartbeat started (every 1800s)
+2026-02-11 12:19:16.141 | INFO     | nanobot.agent.loop:run:300 - Agent loop started
+2026-02-11 12:19:16.141 | INFO     | nanobot.channels.manager:start_all:164 - Starting feishu channel...
+2026-02-11 12:19:16.141 | INFO     | nanobot.channels.manager:_dispatch_outbound:192 - Outbound dispatcher started
+2026-02-11 12:19:16.143 | INFO     | nanobot.channels.feishu:start:126 - Feishu bot started with WebSocket long connection
+2026-02-11 12:19:16.143 | INFO     | nanobot.channels.feishu:start:127 - No public IP required - using WebSocket to receive events
+[Lark] [2026-02-11 12:19:17,111] [INFO] connected to wss://msg-frontier.feishu.cn/ws/v2?fpid=493&aid=552564&device_id=7605457461982186703&access_key=3436beb0237b1f6ca1c239cc4fb5475e&service_id=33554678&ticket=21335c49-1ecc-49c6-ab38-c963d215a872 [conn_id=7605457461982186703]
+[周三 2026/02/11 12:21:20.81] Starting nanobot gateway... 
+🐈 Starting nanobot gateway on port 18790...
+D:\Development\Python\Envs\nano-bot\Lib\site-packages\lark_oapi\ws\pb\google\__init__.py:2: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  __import__('pkg_resources').declare_namespace(__name__)
+2026-02-11 12:21:29.062 | INFO     | nanobot.channels.manager:_init_channels:84 - Feishu channel enabled
+✓ Channels enabled: feishu
+✓ Heartbeat: every 30m
+2026-02-11 12:21:29.069 | INFO     | nanobot.cron.service:start:154 - Cron service started with 0 jobs
+2026-02-11 12:21:29.069 | INFO     | nanobot.heartbeat.service:start:81 - Heartbeat started (every 1800s)
+2026-02-11 12:21:29.070 | INFO     | nanobot.agent.loop:run:300 - Agent loop started
+2026-02-11 12:21:29.070 | INFO     | nanobot.channels.manager:start_all:164 - Starting feishu channel...
+2026-02-11 12:21:29.070 | INFO     | nanobot.channels.manager:_dispatch_outbound:192 - Outbound dispatcher started
+2026-02-11 12:21:29.072 | INFO     | nanobot.channels.feishu:start:126 - Feishu bot started with WebSocket long connection
+2026-02-11 12:21:29.072 | INFO     | nanobot.channels.feishu:start:127 - No public IP required - using WebSocket to receive events
+[Lark] [2026-02-11 12:21:30,125] [INFO] connected to wss://msg-frontier.feishu.cn/ws/v2?fpid=493&aid=552564&device_id=7605458032394374357&access_key=dfbca52ca2826537edbb25015df0d2ea&service_id=33554678&ticket=49b98f8f-ded9-4013-ba5b-c922998a2728 [conn_id=7605458032394374357]
