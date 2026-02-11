@@ -1,0 +1,59 @@
+name: Daily Upstream Main Diff Report
+
+on:
+  # 09:00 Asia/Shanghai
+  schedule:
+    - cron: "0 1 * * *"  # 09:00 UTC+8
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare-main:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure upstream remote
+        run: |
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream https://github.com/HKUDS/nanobot.git
+          else
+            git remote add upstream https://github.com/HKUDS/nanobot.git
+          fi
+
+      - name: Generate upstream diff/conflict report
+        id: report
+        run: |
+          max_attempts=3
+          for attempt in $(seq 1 "$max_attempts"); do
+            echo "Report attempt ${attempt}/${max_attempts}"
+            if python3 scripts/upstream_main_report.py \
+              --base-ref origin/main \
+              --upstream-ref upstream/main; then
+              exit 0
+            fi
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              sleep_seconds=$((attempt * 15))
+              echo "Report generation failed, retry in ${sleep_seconds}s..."
+              sleep "$sleep_seconds"
+            fi
+          done
+          echo "Report generation failed after ${max_attempts} attempts."
+          exit 1
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-main-conflict-report
+          path: ${{ steps.report.outputs.report_path }}
+          if-no-files-found: error
+
+      - name: Publish summary
+        run: cat "${{ steps.report.outputs.report_path }}" >> "$GITHUB_STEP_SUMMARY"
