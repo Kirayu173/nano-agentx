@@ -702,6 +702,21 @@ Full access is controlled by config only:
 When enabled, nanobot invokes Codex with
 `--dangerously-bypass-approvals-and-sandbox`.
 
+### Codex Merge Advisor (`codex_merge`)
+
+`codex_merge` is a higher-level orchestration tool built on top of Codex CLI.
+It supports a two-phase flow:
+
+- `plan_latest`: read latest report from `workspace/reports/upstream-main-conflict-report-*.md` and generate merge advice
+- `revise_plan`: revise advice from user feedback
+- `execute_merge`: execute real merge/conflict resolution/verification/push by codex after `plan_id + confirmation_token` validation
+- `status` / `list`: inspect plan history in `workspace/memory/merge_plans`
+
+Design constraints:
+- nanobot only orchestrates and reports
+- codex performs repository changes, merge conflict handling, git operations, and push
+- `execute_merge` requires `tools.codex.allowDangerousFullAccess = true`
+
 ### Security
 
 > For production deployments, set `"restrictToWorkspace": true` in your config to sandbox the agent.

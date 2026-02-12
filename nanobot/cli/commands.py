@@ -2,10 +2,12 @@
 
 import asyncio
 import os
+import shutil
 import signal
-from pathlib import Path
 import select
 import sys
+from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -282,6 +284,96 @@ def _make_provider(config):
     )
 
 
+def _migrate_codex_merge_cron(cron_service, workspace: Path) -> None:
+    """Apply one-time cron/report migration for codex merge workflow."""
+    from nanobot.cron.types import CronSchedule
+
+    jobs = cron_service.list_jobs(include_disabled=True)
+
+    legacy_job = next((job for job in jobs if job.id == "8dbfbddb"), None)
+    delivery_channel = legacy_job.payload.channel if legacy_job else None
+    delivery_to = legacy_job.payload.to if legacy_job else None
+    if legacy_job is not None:
+        cron_service.remove_job(legacy_job.id)
+
+    reports_dir = workspace / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+
+    legacy_reports_dir = workspace / "report"
+    if legacy_reports_dir.exists() and legacy_reports_dir.is_dir():
+        shutil.rmtree(legacy_reports_dir, ignore_errors=True)
+
+    jobs = cron_service.list_jobs(include_disabled=True)
+    exists = any(
+        job.payload.kind == "tool_call"
+        and (job.payload.tool_name or "") == "codex_merge"
+        and isinstance(job.payload.tool_args, dict)
+        and job.payload.tool_args.get("action") == "plan_latest"
+        and job.schedule.kind == "cron"
+        and (job.schedule.expr or "").strip() == "0 23 * * *"
+        for job in jobs
+    )
+    if exists:
+        return
+
+    cron_service.add_job(
+        name="nightly-codex-merge-plan",
+        schedule=CronSchedule(kind="cron", expr="0 23 * * *"),
+        message="Nightly codex merge planning",
+        payload_kind="tool_call",
+        tool_name="codex_merge",
+        tool_args={
+            "action": "plan_latest",
+            "base_ref": "origin/main",
+            "upstream_ref": "upstream/main",
+            "target_branch": "main",
+        },
+        deliver=bool(delivery_channel and delivery_to),
+        channel=delivery_channel,
+        to=delivery_to,
+    )
+
+
+async def execute_cron_job(job, agent, bus) -> str | None:
+    """Execute one cron job payload."""
+    from nanobot.bus.events import OutboundMessage
+
+    async def _deliver(content: str) -> None:
+        if not (job.payload.deliver and job.payload.to):
+            return
+        await bus.publish_outbound(
+            OutboundMessage(
+                channel=job.payload.channel or "cli",
+                chat_id=job.payload.to,
+                content=content,
+            )
+        )
+
+    if job.payload.kind == "system_event":
+        message = job.payload.message or ""
+        await _deliver(message)
+        return message
+
+    if job.payload.kind == "tool_call":
+        tool_name = (job.payload.tool_name or "").strip()
+        tool_args: dict[str, Any] = job.payload.tool_args or {}
+        if not tool_name:
+            result = "Error: tool_name is required for tool_call payload"
+        else:
+            result = await agent.tools.execute(tool_name, tool_args)
+        await _deliver(result or "")
+        return result
+
+    response = await agent.process_direct(
+        job.payload.message,
+        session_key=f"cron:{job.id}",
+        channel=job.payload.channel or "cli",
+        chat_id=job.payload.to or "direct",
+    )
+    await _deliver(response or "")
+    return response
+
+
 # ============================================================================
 # Gateway / Server
 # ============================================================================
@@ -299,7 +391,6 @@ def gateway(
     from nanobot.channels.manager import ChannelManager
     from nanobot.session.manager import SessionManager
     from nanobot.cron.service import CronService
-    from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
     
     if verbose:
@@ -320,6 +411,7 @@ def gateway(
     # Create cron service first (callback set after agent creation)
     cron_store_path = get_data_dir() / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
+    _migrate_codex_merge_cron(cron, config.workspace_path)
     
     # Create agent with cron service
     agent = AgentLoop(
@@ -339,33 +431,9 @@ def gateway(
     )
     
     # Set cron callback (needs agent)
-    async def on_cron_job(job: CronJob) -> str | None:
+    async def on_cron_job(job) -> str | None:
         """Execute a cron job through the agent."""
-        # "system_event" jobs are plain reminders and should be delivered directly.
-        if job.payload.kind == "system_event":
-            if job.payload.deliver and job.payload.to:
-                from nanobot.bus.events import OutboundMessage
-                await bus.publish_outbound(OutboundMessage(
-                    channel=job.payload.channel or "cli",
-                    chat_id=job.payload.to,
-                    content=job.payload.message or ""
-                ))
-            return job.payload.message
-
-        response = await agent.process_direct(
-            job.payload.message,
-            session_key=f"cron:{job.id}",
-            channel=job.payload.channel or "cli",
-            chat_id=job.payload.to or "direct",
-        )
-        if job.payload.deliver and job.payload.to:
-            from nanobot.bus.events import OutboundMessage
-            await bus.publish_outbound(OutboundMessage(
-                channel=job.payload.channel or "cli",
-                chat_id=job.payload.to,
-                content=response or ""
-            ))
-        return response
+        return await execute_cron_job(job, agent, bus)
     cron.on_job = on_cron_job
     
     # Create heartbeat service
@@ -392,7 +460,7 @@ def gateway(
     if cron_status["jobs"] > 0:
         console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
     
-    console.print(f"[green]✓[/green] Heartbeat: every 30m")
+    console.print("[green]✓[/green] Heartbeat: every 30m")
     
     async def run():
         try:
@@ -817,7 +885,7 @@ def cron_run(
         return await service.run_job(job_id, force=force)
     
     if asyncio.run(run()):
-        console.print(f"[green]✓[/green] Job executed")
+        console.print("[green]✓[/green] Job executed")
     else:
         console.print(f"[red]Failed to run job {job_id}[/red]")
 

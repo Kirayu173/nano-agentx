@@ -31,6 +31,8 @@ tests/*
 !tests/test_feishu_channel.py
 !tests/test_codex_tool.py
 !tests/test_codex_registration.py
+!tests/test_codex_merge_tool.py
+!tests/test_cron_tool_call_dispatch.py
 botpy.log
 # Runtime artifacts
 workspace/.nanobot/

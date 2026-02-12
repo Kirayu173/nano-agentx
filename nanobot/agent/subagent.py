@@ -14,7 +14,7 @@ from nanobot.providers.base import LLMProvider
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, ListDirTool
 from nanobot.agent.tools.shell import ExecTool
-from nanobot.agent.tools.codex import CodexRunTool
+from nanobot.agent.tools.codex import CodexMergeTool, CodexRunTool
 from nanobot.agent.tools.todo import TodoTool
 from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.agent.tools.browser import BrowserRunTool
@@ -186,6 +186,11 @@ class SubagentManager:
         ))
         if self.codex_config.enabled:
             tools.register(CodexRunTool(
+                workspace=self.workspace,
+                codex_config=self.codex_config,
+                restrict_to_workspace=self.restrict_to_workspace,
+            ))
+            tools.register(CodexMergeTool(
                 workspace=self.workspace,
                 codex_config=self.codex_config,
                 restrict_to_workspace=self.restrict_to_workspace,

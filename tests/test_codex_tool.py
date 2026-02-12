@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-import nanobot.agent.tools.codex as codex_module
+import nanobot.agent.tools.codex.client as codex_client_module
 from nanobot.agent.tools.codex import CodexRunTool
 from nanobot.config.schema import CodexToolConfig
 
@@ -57,12 +57,12 @@ def _install_subprocess_spy(monkeypatch: pytest.MonkeyPatch, process: FakeProces
         captured["cwd"] = kwargs.get("cwd")
         return process
 
-    monkeypatch.setattr(codex_module.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    monkeypatch.setattr(codex_client_module.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
     return captured
 
 
 def _allow_codex_binary(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(codex_module.shutil, "which", lambda command: command)
+    monkeypatch.setattr(codex_client_module.shutil, "which", lambda command: command)
 
 
 async def test_codex_run_builds_exec_command_with_defaults(
@@ -101,7 +101,7 @@ async def test_codex_run_rejects_danger_full_access_without_global_allow(
     async def should_not_spawn(*args, **kwargs):  # pragma: no cover
         raise AssertionError("subprocess should not be called")
 
-    monkeypatch.setattr(codex_module.asyncio, "create_subprocess_exec", should_not_spawn)
+    monkeypatch.setattr(codex_client_module.asyncio, "create_subprocess_exec", should_not_spawn)
     tool = CodexRunTool(
         workspace=tmp_path,
         codex_config=CodexToolConfig(enabled=True, allow_dangerous_full_access=False),
@@ -239,7 +239,7 @@ async def test_codex_run_reports_missing_binary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(codex_module.shutil, "which", lambda command: None)
+    monkeypatch.setattr(codex_client_module.shutil, "which", lambda command: None)
     tool = CodexRunTool(
         workspace=tmp_path,
         codex_config=CodexToolConfig(enabled=True, command="codex-not-found"),

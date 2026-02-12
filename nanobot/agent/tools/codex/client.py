@@ -1,4 +1,4 @@
-"""Codex CLI execution tool."""
+﻿"""Codex CLI client."""
 
 from __future__ import annotations
 
@@ -8,57 +8,14 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from nanobot.agent.tools.base import Tool
 from nanobot.config.schema import CodexToolConfig
 
-_MODES = ("exec", "review")
-_SANDBOXES = ("read-only", "workspace-write", "danger-full-access")
+MODES = ("exec", "review")
+SANDBOXES = ("read-only", "workspace-write", "danger-full-access")
 
 
-class CodexRunTool(Tool):
-    """Execute Codex CLI tasks in non-interactive mode."""
-
-    name = "codex_run"
-    description = (
-        "Run Codex CLI non-interactively for coding tasks. "
-        "Supports exec and review mode. "
-        "When allowDangerousFullAccess is enabled, full access is applied automatically."
-    )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "prompt": {
-                "type": "string",
-                "description": "Task instructions for Codex",
-                "minLength": 1,
-            },
-            "mode": {
-                "type": "string",
-                "enum": list(_MODES),
-                "description": "Run mode: exec for general tasks, review for code review",
-            },
-            "working_dir": {
-                "type": "string",
-                "description": "Working directory for Codex (relative paths are under workspace)",
-            },
-            "sandbox": {
-                "type": "string",
-                "enum": list(_SANDBOXES),
-                "description": "Codex sandbox mode",
-            },
-            "model": {
-                "type": "string",
-                "description": "Optional model override for Codex",
-            },
-            "timeout_sec": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 7200,
-                "description": "Optional timeout override in seconds",
-            },
-        },
-        "required": ["prompt"],
-    }
+class CodexClient:
+    """Execute Codex CLI in non-interactive mode and normalize outputs."""
 
     def __init__(
         self,
@@ -70,19 +27,19 @@ class CodexRunTool(Tool):
         self.config = codex_config or CodexToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
 
-    async def execute(
+    async def run(
         self,
+        *,
         prompt: str,
         mode: str = "exec",
         working_dir: str | None = None,
         sandbox: str | None = None,
         model: str | None = None,
         timeout_sec: int | None = None,
-        **kwargs: Any,
-    ) -> str:
+    ) -> dict[str, Any]:
         selected_mode = (mode or "exec").strip().lower()
-        if selected_mode not in _MODES:
-            return self._error("invalid_mode", f"mode must be one of {_MODES}")
+        if selected_mode not in MODES:
+            return self._error("invalid_mode", f"mode must be one of {MODES}")
 
         task = (prompt or "").strip()
         if not task:
@@ -94,8 +51,8 @@ class CodexRunTool(Tool):
             return self._error("invalid_working_dir", str(exc))
 
         selected_sandbox = (sandbox or self.config.default_sandbox).strip().lower()
-        if selected_sandbox not in _SANDBOXES:
-            return self._error("invalid_sandbox", f"sandbox must be one of {_SANDBOXES}")
+        if selected_sandbox not in SANDBOXES:
+            return self._error("invalid_sandbox", f"sandbox must be one of {SANDBOXES}")
 
         full_access = bool(self.config.allow_dangerous_full_access)
         effective_sandbox = "danger-full-access" if full_access else selected_sandbox
@@ -118,10 +75,7 @@ class CodexRunTool(Tool):
 
         command = self._resolve_command()
         if not command:
-            return self._error(
-                "command_not_found",
-                f"Codex command not found: {self.config.command}",
-            )
+            return self._error("command_not_found", f"Codex command not found: {self.config.command}")
 
         cmd = self._build_command(
             command=command,
@@ -141,28 +95,19 @@ class CodexRunTool(Tool):
                 cwd=str(cwd),
             )
         except FileNotFoundError:
-            return self._error(
-                "command_not_found",
-                f"Codex command not found: {self.config.command}",
-            )
-        except Exception as exc:
+            return self._error("command_not_found", f"Codex command not found: {self.config.command}")
+        except Exception as exc:  # pragma: no cover - defensive path
             return self._error("spawn_failed", str(exc))
 
         try:
-            stdout_raw, stderr_raw = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout,
-            )
+            stdout_raw, stderr_raw = await asyncio.wait_for(process.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             process.kill()
             try:
                 await process.communicate()
             except Exception:
                 pass
-            return self._error(
-                "timeout",
-                f"codex_run timed out after {timeout} seconds",
-            )
+            return self._error("timeout", f"codex_run timed out after {timeout} seconds")
 
         stdout = stdout_raw.decode("utf-8", errors="replace")
         stderr = stderr_raw.decode("utf-8", errors="replace").strip()
@@ -207,8 +152,7 @@ class CodexRunTool(Tool):
         if stderr_text:
             payload["stderr"] = stderr_text
             payload["stderr_truncated"] = stderr_truncated
-
-        return json.dumps(payload, ensure_ascii=False)
+        return payload
 
     def _resolve_working_dir(self, working_dir: str | None) -> Path:
         if not working_dir:
@@ -224,7 +168,6 @@ class CodexRunTool(Tool):
             raise ValueError(f"working_dir does not exist: {path}")
         if not path.is_dir():
             raise ValueError(f"working_dir is not a directory: {path}")
-
         return path
 
     def _resolve_command(self) -> str | None:
@@ -239,11 +182,11 @@ class CodexRunTool(Tool):
         command_path = Path(command).expanduser()
         if command_path.exists():
             return str(command_path.resolve())
-
         return None
 
     def _build_command(
         self,
+        *,
         command: str,
         mode: str,
         prompt: str,
@@ -324,7 +267,8 @@ class CodexRunTool(Tool):
             return text, False
         return text[:limit], True
 
-    def _error(self, code: str, message: str, **extra: Any) -> str:
+    @staticmethod
+    def _error(code: str, message: str, **extra: Any) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "ok": False,
             "error": {
@@ -335,4 +279,4 @@ class CodexRunTool(Tool):
         for key, value in extra.items():
             if value is not None:
                 payload[key] = value
-        return json.dumps(payload, ensure_ascii=False)
+        return payload

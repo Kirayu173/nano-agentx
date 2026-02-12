@@ -11,7 +11,7 @@ from loguru import logger
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.browser import BrowserRunTool
-from nanobot.agent.tools.codex import CodexRunTool
+from nanobot.agent.tools.codex import CodexMergeTool, CodexRunTool
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
 from nanobot.agent.tools.message import MessageTool
@@ -113,6 +113,11 @@ class AgentLoop:
         ))
         if self.codex_config.enabled:
             self.tools.register(CodexRunTool(
+                workspace=self.workspace,
+                codex_config=self.codex_config,
+                restrict_to_workspace=self.restrict_to_workspace,
+            ))
+            self.tools.register(CodexMergeTool(
                 workspace=self.workspace,
                 codex_config=self.codex_config,
                 restrict_to_workspace=self.restrict_to_workspace,

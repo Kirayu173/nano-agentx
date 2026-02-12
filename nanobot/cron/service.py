@@ -89,6 +89,12 @@ class CronService:
                         payload=CronPayload(
                             kind=j["payload"].get("kind", "agent_turn"),
                             message=j["payload"].get("message", ""),
+                            tool_name=j["payload"].get("toolName"),
+                            tool_args=(
+                                j["payload"].get("toolArgs")
+                                if isinstance(j["payload"].get("toolArgs"), dict)
+                                else None
+                            ),
                             deliver=j["payload"].get("deliver", False),
                             channel=j["payload"].get("channel"),
                             to=j["payload"].get("to"),
@@ -136,6 +142,8 @@ class CronService:
                     "payload": {
                         "kind": j.payload.kind,
                         "message": j.payload.message,
+                        "toolName": j.payload.tool_name,
+                        "toolArgs": j.payload.tool_args,
                         "deliver": j.payload.deliver,
                         "channel": j.payload.channel,
                         "to": j.payload.to,
@@ -231,9 +239,8 @@ class CronService:
         logger.info(f"Cron: executing job '{job.name}' ({job.id})")
         
         try:
-            response = None
             if self.on_job:
-                response = await self.on_job(job)
+                await self.on_job(job)
             
             job.state.last_status = "ok"
             job.state.last_error = None
@@ -272,6 +279,8 @@ class CronService:
         schedule: CronSchedule,
         message: str,
         payload_kind: str = "agent_turn",
+        tool_name: str | None = None,
+        tool_args: dict[str, Any] | None = None,
         deliver: bool = False,
         channel: str | None = None,
         to: str | None = None,
@@ -281,7 +290,11 @@ class CronService:
         store = self._load_store()
         now = _now_ms()
         
-        kind = payload_kind if payload_kind in {"system_event", "agent_turn"} else "agent_turn"
+        kind = (
+            payload_kind
+            if payload_kind in {"system_event", "agent_turn", "tool_call"}
+            else "agent_turn"
+        )
 
         job = CronJob(
             id=str(uuid.uuid4())[:8],
@@ -291,6 +304,8 @@ class CronService:
             payload=CronPayload(
                 kind=kind,
                 message=message,
+                tool_name=tool_name,
+                tool_args=tool_args,
                 deliver=deliver,
                 channel=channel,
                 to=to,

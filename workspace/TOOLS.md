@@ -62,6 +62,29 @@ codex_run(
 - `danger-full-access` passes Codex bypass flag and should be used only for trusted tasks.
 - If `tools.restrictToWorkspace` is true, `working_dir` outside workspace is rejected.
 
+### codex_merge
+Codex merge advisor/executor workflow tool.
+```
+codex_merge(
+  action: str,                     # plan_latest | revise_plan | execute_merge | status | list
+  plan_id: str = None,
+  feedback: str = None,            # required by revise_plan
+  confirmation_token: str = None,  # required by execute_merge
+  base_ref: str = "origin/main",
+  upstream_ref: str = "upstream/main",
+  target_branch: str = "main",
+  working_dir: str = None,
+  model: str = None,
+  timeout_sec: int = None
+) -> str (JSON payload)
+```
+
+Notes:
+- `plan_latest` reads the latest report from `workspace/reports/upstream-main-conflict-report-*.md`.
+- Plan records are persisted in `workspace/memory/merge_plans`.
+- `execute_merge` requires `tools.codex.allowDangerousFullAccess = true`.
+- Conflict resolution, merge execution, validation, and push are performed by codex.
+
 ## Web Access
 
 ### web_search

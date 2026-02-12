@@ -29,6 +29,7 @@ def test_agent_loop_registers_codex_tool_when_enabled(tmp_path) -> None:
         codex_config=CodexToolConfig(enabled=True),
     )
     assert "codex_run" in loop.tools.tool_names
+    assert "codex_merge" in loop.tools.tool_names
 
 
 def test_agent_loop_does_not_register_codex_tool_when_disabled(tmp_path) -> None:
@@ -40,6 +41,7 @@ def test_agent_loop_does_not_register_codex_tool_when_disabled(tmp_path) -> None
         codex_config=CodexToolConfig(enabled=False),
     )
     assert "codex_run" not in loop.tools.tool_names
+    assert "codex_merge" not in loop.tools.tool_names
 
 
 def test_subagent_registers_codex_tool_when_enabled(tmp_path) -> None:
@@ -52,6 +54,7 @@ def test_subagent_registers_codex_tool_when_enabled(tmp_path) -> None:
     )
     tools = manager._build_tool_registry()
     assert "codex_run" in tools.tool_names
+    assert "codex_merge" in tools.tool_names
 
 
 def test_subagent_does_not_register_codex_tool_when_disabled(tmp_path) -> None:
@@ -64,3 +67,4 @@ def test_subagent_does_not_register_codex_tool_when_disabled(tmp_path) -> None:
     )
     tools = manager._build_tool_registry()
     assert "codex_run" not in tools.tool_names
+    assert "codex_merge" not in tools.tool_names
