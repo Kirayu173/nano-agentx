@@ -9,6 +9,7 @@ from typing import Any
 from loguru import logger
 
 from nanobot.agent.context import ContextBuilder
+from nanobot.agent.memory import MemoryStore
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.browser import BrowserRunTool
 from nanobot.agent.tools.codex import CodexMergeTool, CodexRunTool
@@ -51,6 +52,8 @@ class AgentLoop:
         workspace: Path,
         model: str | None = None,
         max_iterations: int = 20,
+        memory_window: int = 50,
+        brave_api_key: str | None = None,
         web_search_config: WebSearchConfig | None = None,
         web_browser_config: BrowserToolConfig | None = None,
         exec_config: ExecToolConfig | None = None,
@@ -65,7 +68,11 @@ class AgentLoop:
         self.workspace = workspace
         self.model = model or provider.get_default_model()
         self.max_iterations = max_iterations
+        self.memory_window = memory_window
+        self.brave_api_key = brave_api_key
         self.web_search_config = web_search_config or WebSearchConfig()
+        if self.brave_api_key:
+            self.web_search_config.providers.brave.api_key = self.brave_api_key
         self.web_browser_config = web_browser_config or BrowserToolConfig()
         self.exec_config = exec_config or ExecToolConfig()
         self.codex_config = codex_config or CodexToolConfig()
@@ -86,6 +93,7 @@ class AgentLoop:
             workspace=workspace,
             bus=bus,
             model=self.model,
+            brave_api_key=self.brave_api_key,
             web_search_config=self.web_search_config,
             web_browser_config=self.web_browser_config,
             exec_config=self.exec_config,
@@ -333,12 +341,13 @@ class AgentLoop:
         self._running = False
         logger.info("Agent loop stopping")
     
-    async def _process_message(self, msg: InboundMessage) -> OutboundMessage | None:
+    async def _process_message(self, msg: InboundMessage, session_key: str | None = None) -> OutboundMessage | None:
         """
         Process a single inbound message.
         
         Args:
             msg: The inbound message to process.
+            session_key: Optional explicit session key override.
         
         Returns:
             The response message, or None if no response needed.
@@ -352,7 +361,11 @@ class AgentLoop:
         logger.info(f"Processing message from {msg.channel}:{msg.sender_id}: {preview}")
         
         # Get or create session
-        session = self.sessions.get_or_create(msg.session_key)
+        session = self.sessions.get_or_create(session_key or msg.session_key)
+
+        # Consolidate memory before processing if session is too large.
+        if len(session.messages) > self.memory_window:
+            await self._consolidate_memory(session)
 
         # Keep latest image context for 1-2 follow-up turns in the same session.
         incoming_media = self._normalize_media_paths(msg.media)
@@ -390,6 +403,7 @@ class AgentLoop:
         # Agent loop
         iteration = 0
         final_content = None
+        tools_used: list[str] = []
         
         while iteration < self.max_iterations:
             iteration += 1
@@ -422,6 +436,7 @@ class AgentLoop:
                 
                 # Execute tools
                 for tool_call in response.tool_calls:
+                    tools_used.append(tool_call.name)
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     safe_args = self._redact_text(args_str)
                     logger.info(f"Tool call: {tool_call.name}({safe_args[:200]})")
@@ -429,6 +444,7 @@ class AgentLoop:
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
+                messages.append({"role": "user", "content": "Reflect on the results and decide next steps."})
             else:
                 # No tool calls, we're done
                 final_content = response.content
@@ -444,7 +460,11 @@ class AgentLoop:
         
         # Save to session
         session.add_message("user", msg.content)
-        session.add_message("assistant", final_content)
+        session.add_message(
+            "assistant",
+            final_content,
+            tools_used=tools_used if tools_used else None,
+        )
         self.sessions.save(session)
         
         return OutboundMessage(
@@ -501,6 +521,7 @@ class AgentLoop:
         # Agent loop (limited for announce handling)
         iteration = 0
         final_content = None
+        tools_used: list[str] = []
         
         while iteration < self.max_iterations:
             iteration += 1
@@ -529,6 +550,7 @@ class AgentLoop:
                 )
                 
                 for tool_call in response.tool_calls:
+                    tools_used.append(tool_call.name)
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     safe_args = self._redact_text(args_str)
                     logger.info(f"Tool call: {tool_call.name}({safe_args[:200]})")
@@ -536,6 +558,7 @@ class AgentLoop:
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
+                messages.append({"role": "user", "content": "Reflect on the results and decide next steps."})
             else:
                 final_content = response.content
                 break
@@ -547,7 +570,11 @@ class AgentLoop:
         # Save to session (mark as system message in history)
         system_msg = self._redact_text(f"[System: {msg.sender_id}] {msg.content}")
         session.add_message("user", system_msg)
-        session.add_message("assistant", final_content)
+        session.add_message(
+            "assistant",
+            final_content,
+            tools_used=tools_used if tools_used else None,
+        )
         self.sessions.save(session)
         
         return OutboundMessage(
@@ -555,6 +582,75 @@ class AgentLoop:
             chat_id=origin_chat_id,
             content=final_content
         )
+
+    async def _consolidate_memory(self, session: Any) -> None:
+        """Consolidate old messages into MEMORY.md + HISTORY.md, then trim session."""
+        memory = MemoryStore(self.workspace)
+        keep_count = min(10, max(2, self.memory_window // 2))
+        old_messages = session.messages[:-keep_count]
+        if not old_messages:
+            return
+        logger.info(
+            "Memory consolidation started: "
+            f"{len(session.messages)} messages, archiving {len(old_messages)}, keeping {keep_count}"
+        )
+
+        lines = []
+        for message in old_messages:
+            if not message.get("content"):
+                continue
+            tools = f" [tools: {', '.join(message['tools_used'])}]" if message.get("tools_used") else ""
+            lines.append(
+                f"[{message.get('timestamp', '?')[:16]}] {message['role'].upper()}{tools}: {message['content']}"
+            )
+        conversation = "\n".join(lines)
+        current_memory = memory.read_long_term()
+
+        prompt = f"""You are a memory consolidation agent. Process this conversation and return a JSON object with exactly two keys:
+
+1. "history_entry": A paragraph (2-5 sentences) summarizing the key events/decisions/topics. Start with a timestamp like [YYYY-MM-DD HH:MM]. Include enough detail to be useful when found by grep search later.
+
+2. "memory_update": The updated long-term memory content. Add any new facts: user location, preferences, personal info, habits, project context, technical decisions, tools/services used. If nothing new, return the existing content unchanged.
+
+## Current Long-term Memory
+{current_memory or "(empty)"}
+
+## Conversation to Process
+{conversation}
+
+Respond with ONLY valid JSON, no markdown fences."""
+
+        try:
+            response = await self.provider.chat(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a memory consolidation agent. Respond only with valid JSON.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                model=self.model,
+            )
+            text = (response.content or "").strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            result = json.loads(text)
+            if not isinstance(result, dict):
+                raise ValueError("consolidation response is not a JSON object")
+
+            history_entry = result.get("history_entry")
+            if isinstance(history_entry, str) and history_entry.strip():
+                memory.append_history(history_entry)
+
+            memory_update = result.get("memory_update")
+            if isinstance(memory_update, str) and memory_update != current_memory:
+                memory.write_long_term(memory_update)
+
+            session.messages = session.messages[-keep_count:]
+            self.sessions.save(session)
+            logger.info(f"Memory consolidation done, session trimmed to {len(session.messages)} messages")
+        except Exception as e:
+            logger.error(f"Memory consolidation failed: {e}")
     
     async def process_direct(
         self,
@@ -568,9 +664,9 @@ class AgentLoop:
         
         Args:
             content: The message content.
-            session_key: Session identifier.
-            channel: Source channel (for context).
-            chat_id: Source chat ID (for context).
+            session_key: Session identifier (overrides channel:chat_id for session lookup).
+            channel: Source channel (for tool context routing).
+            chat_id: Source chat ID (for tool context routing).
         
         Returns:
             The agent's response.
@@ -580,8 +676,7 @@ class AgentLoop:
             sender_id="user",
             chat_id=chat_id,
             content=content,
-            session_key_override=session_key or None,
         )
         
-        response = await self._process_message(msg)
+        response = await self._process_message(msg, session_key=session_key)
         return self._redact_text(response.content if response else "")

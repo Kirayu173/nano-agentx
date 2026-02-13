@@ -33,6 +33,7 @@ tests/*
 !tests/test_codex_registration.py
 !tests/test_codex_merge_tool.py
 !tests/test_cron_tool_call_dispatch.py
+!tests/test_memory_consolidation.py
 botpy.log
 # Runtime artifacts
 workspace/.nanobot/

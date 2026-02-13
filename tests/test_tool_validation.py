@@ -160,7 +160,7 @@ async def test_cron_tool_add_in_seconds_creates_one_time_job() -> None:
     result = await tool.execute(
         action="add",
         message="Drink water",
-        mode="reminder",
+        mode="one_time",
         in_seconds=120,
     )
     after_ms = int(time.time() * 1000)
@@ -184,7 +184,7 @@ async def test_cron_tool_add_at_creates_one_time_job() -> None:
     result = await tool.execute(
         action="add",
         message="Stand up",
-        mode="reminder",
+        mode="one_time",
         at=dt.isoformat(),
     )
 
@@ -214,7 +214,7 @@ async def test_cron_tool_rejects_invalid_mode_and_non_positive_interval() -> Non
         every_seconds=0,
     )
 
-    assert invalid_mode == "Error: mode must be 'reminder' or 'task'"
+    assert invalid_mode == "Error: mode must be 'reminder', 'task', or 'one_time'"
     assert invalid_interval == "Error: every_seconds must be > 0"
     assert service.add_calls == []
 
@@ -229,11 +229,19 @@ async def test_cron_tool_rejects_conflicting_schedule_inputs() -> None:
         action="add",
         message="hello",
         mode="reminder",
+        cron_expr="0 9 * * *",
+        in_seconds=120,
+    )
+    one_time_conflict = await tool.execute(
+        action="add",
+        message="hello",
+        mode="one_time",
         every_seconds=60,
         in_seconds=120,
     )
 
-    assert conflict == "Error: specify exactly one of every_seconds, cron_expr, in_seconds, or at"
+    assert conflict == "Error: reminder/task mode does not allow in_seconds or at"
+    assert one_time_conflict == "Error: one_time mode does not allow every_seconds or cron_expr"
     assert service.add_calls == []
 
 

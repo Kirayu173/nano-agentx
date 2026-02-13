@@ -12,7 +12,7 @@ from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, ListDirTool
+from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.codex import CodexMergeTool, CodexRunTool
 from nanobot.agent.tools.todo import TodoTool
@@ -36,6 +36,7 @@ class SubagentManager:
         workspace: Path,
         bus: MessageBus,
         model: str | None = None,
+        brave_api_key: str | None = None,
         web_search_config: WebSearchConfig | None = None,
         web_browser_config: BrowserToolConfig | None = None,
         exec_config: ExecToolConfig | None = None,
@@ -46,7 +47,10 @@ class SubagentManager:
         self.workspace = workspace
         self.bus = bus
         self.model = model or provider.get_default_model()
+        self.brave_api_key = brave_api_key
         self.web_search_config = web_search_config or WebSearchConfig()
+        if self.brave_api_key:
+            self.web_search_config.providers.brave.api_key = self.brave_api_key
         self.web_browser_config = web_browser_config or BrowserToolConfig()
         self.exec_config = exec_config or ExecToolConfig()
         self.codex_config = codex_config or CodexToolConfig()
@@ -104,7 +108,44 @@ class SubagentManager:
         
         try:
             # Build subagent tools (no message tool, no spawn tool)
-            tools = self._build_tool_registry()
+            tools = ToolRegistry()
+            allowed_dir = self.workspace if self.restrict_to_workspace else None
+            tools.register(ReadFileTool(allowed_dir=allowed_dir, workspace=self.workspace))
+            tools.register(WriteFileTool(allowed_dir=allowed_dir, workspace=self.workspace))
+            tools.register(EditFileTool(allowed_dir=allowed_dir, workspace=self.workspace))
+            tools.register(ListDirTool(allowed_dir=allowed_dir, workspace=self.workspace))
+            tools.register(
+                ExecTool(
+                    working_dir=str(self.workspace),
+                    timeout=self.exec_config.timeout,
+                    restrict_to_workspace=self.restrict_to_workspace,
+                )
+            )
+            if self.codex_config.enabled:
+                tools.register(
+                    CodexRunTool(
+                        workspace=self.workspace,
+                        codex_config=self.codex_config,
+                        restrict_to_workspace=self.restrict_to_workspace,
+                    )
+                )
+                tools.register(
+                    CodexMergeTool(
+                        workspace=self.workspace,
+                        codex_config=self.codex_config,
+                        restrict_to_workspace=self.restrict_to_workspace,
+                    )
+                )
+            tools.register(TodoTool(workspace=self.workspace))
+            tools.register(WebSearchTool(web_search_config=self.web_search_config))
+            tools.register(WebFetchTool())
+            if self.web_browser_config.enabled:
+                tools.register(
+                    BrowserRunTool(
+                        workspace=self.workspace,
+                        web_browser_config=self.web_browser_config,
+                    )
+                )
             
             # Build messages with subagent-specific prompt
             system_prompt = self._build_subagent_prompt(task)
@@ -171,41 +212,6 @@ class SubagentManager:
             error_msg = f"Error: {str(e)}"
             logger.error(f"Subagent [{task_id}] failed: {e}")
             await self._announce_result(task_id, label, task, error_msg, origin, "error")
-    
-    def _build_tool_registry(self) -> ToolRegistry:
-        """Build the tool registry used by a subagent run."""
-        tools = ToolRegistry()
-        allowed_dir = self.workspace if self.restrict_to_workspace else None
-        tools.register(ReadFileTool(allowed_dir=allowed_dir))
-        tools.register(WriteFileTool(allowed_dir=allowed_dir))
-        tools.register(ListDirTool(allowed_dir=allowed_dir))
-        tools.register(ExecTool(
-            working_dir=str(self.workspace),
-            timeout=self.exec_config.timeout,
-            restrict_to_workspace=self.restrict_to_workspace,
-        ))
-        if self.codex_config.enabled:
-            tools.register(CodexRunTool(
-                workspace=self.workspace,
-                codex_config=self.codex_config,
-                restrict_to_workspace=self.restrict_to_workspace,
-            ))
-            tools.register(CodexMergeTool(
-                workspace=self.workspace,
-                codex_config=self.codex_config,
-                restrict_to_workspace=self.restrict_to_workspace,
-            ))
-        tools.register(TodoTool(workspace=self.workspace))
-        tools.register(WebSearchTool(web_search_config=self.web_search_config))
-        tools.register(WebFetchTool())
-        if self.web_browser_config.enabled:
-            tools.register(
-                BrowserRunTool(
-                    workspace=self.workspace,
-                    web_browser_config=self.web_browser_config,
-                )
-            )
-        return tools
 
     async def _announce_result(
         self,
@@ -241,7 +247,16 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
     
     def _build_subagent_prompt(self, task: str) -> str:
         """Build a focused system prompt for the subagent."""
+        from datetime import datetime
+        import time as _time
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
+        tz = _time.strftime("%Z") or "UTC"
+
         return f"""# Subagent
+
+## Current Time
+{now} ({tz})
 
 You are a subagent spawned by the main agent to complete a specific task.
 
@@ -276,6 +291,7 @@ If asked for restricted internal details, refuse that part briefly and keep the 
 
 ## Workspace
 Your workspace is at: {self.workspace}
+Skills are available at: {self.workspace}/skills/ (read SKILL.md files as needed)
 
 When you have completed the task, provide a clear summary of your findings or actions."""
     

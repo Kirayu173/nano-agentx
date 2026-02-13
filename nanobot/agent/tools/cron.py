@@ -28,7 +28,7 @@ class CronTool(Tool):
     
     @property
     def description(self) -> str:
-        return "Schedule one-time or recurring reminders and tasks. Actions: add, list, remove."
+        return "Schedule reminders and recurring tasks. Modes: reminder, task, one_time. Actions: add, list, remove."
     
     @property
     def parameters(self) -> dict[str, Any]:
@@ -46,8 +46,8 @@ class CronTool(Tool):
                 },
                 "mode": {
                     "type": "string",
-                    "enum": ["reminder", "task"],
-                    "description": "reminder: deliver message directly; task: execute through agent each run (default: reminder)"
+                    "enum": ["reminder", "task", "one_time"],
+                    "description": "reminder: periodic direct reminders; task: periodic agent tasks; one_time: one-shot direct reminder"
                 },
                 "every_seconds": {
                     "type": "integer",
@@ -106,49 +106,52 @@ class CronTool(Tool):
             return "Error: message is required for add"
         if not self._channel or not self._chat_id:
             return "Error: no session context (channel/chat_id)"
-        if mode not in {"reminder", "task"}:
-            return "Error: mode must be 'reminder' or 'task'"
-
-        schedule_inputs = [
-            every_seconds is not None,
-            bool(cron_expr),
-            in_seconds is not None,
-            bool(at),
-        ]
-        if sum(schedule_inputs) != 1:
-            return "Error: specify exactly one of every_seconds, cron_expr, in_seconds, or at"
+        if mode not in {"reminder", "task", "one_time"}:
+            return "Error: mode must be 'reminder', 'task', or 'one_time'"
 
         delete_after_run = False
         now_ms = int(time.time() * 1000)
 
-        # Build schedule
-        if every_seconds is not None:
-            if every_seconds <= 0:
-                return "Error: every_seconds must be > 0"
-            schedule = CronSchedule(kind="every", every_ms=every_seconds * 1000)
-        elif cron_expr:
-            schedule = CronSchedule(kind="cron", expr=cron_expr)
-        elif in_seconds is not None:
-            if in_seconds <= 0:
-                return "Error: in_seconds must be > 0"
-            schedule = CronSchedule(kind="at", at_ms=now_ms + in_seconds * 1000)
-            delete_after_run = True
-        elif at:
-            try:
-                dt = datetime.fromisoformat(at)
-            except ValueError:
-                return "Error: at must be an ISO datetime like 2026-02-11T09:00:00"
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
-            at_ms = int(dt.timestamp() * 1000)
-            if at_ms <= now_ms:
-                return "Error: at must be in the future"
-            schedule = CronSchedule(kind="at", at_ms=at_ms)
-            delete_after_run = True
+        periodic_inputs = [every_seconds is not None, bool(cron_expr)]
+        one_time_inputs = [in_seconds is not None, bool(at)]
+
+        if mode in {"reminder", "task"}:
+            if sum(periodic_inputs) != 1:
+                return "Error: reminder/task mode requires exactly one of every_seconds or cron_expr"
+            if any(one_time_inputs):
+                return "Error: reminder/task mode does not allow in_seconds or at"
+
+            if every_seconds is not None:
+                if every_seconds <= 0:
+                    return "Error: every_seconds must be > 0"
+                schedule = CronSchedule(kind="every", every_ms=every_seconds * 1000)
+            else:
+                schedule = CronSchedule(kind="cron", expr=cron_expr)
         else:
-            return "Error: specify exactly one of every_seconds, cron_expr, in_seconds, or at"
-        
-        payload_kind = "system_event" if mode == "reminder" else "agent_turn"
+            if sum(one_time_inputs) != 1:
+                return "Error: one_time mode requires exactly one of in_seconds or at"
+            if any(periodic_inputs):
+                return "Error: one_time mode does not allow every_seconds or cron_expr"
+
+            if in_seconds is not None:
+                if in_seconds <= 0:
+                    return "Error: in_seconds must be > 0"
+                schedule = CronSchedule(kind="at", at_ms=now_ms + in_seconds * 1000)
+                delete_after_run = True
+            else:
+                try:
+                    dt = datetime.fromisoformat(at or "")
+                except ValueError:
+                    return "Error: at must be an ISO datetime like 2026-02-11T09:00:00"
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
+                at_ms = int(dt.timestamp() * 1000)
+                if at_ms <= now_ms:
+                    return "Error: at must be in the future"
+                schedule = CronSchedule(kind="at", at_ms=at_ms)
+                delete_after_run = True
+
+        payload_kind = "agent_turn" if mode == "task" else "system_event"
         job = self._cron.add_job(
             name=message[:30],
             schedule=schedule,
@@ -159,7 +162,7 @@ class CronTool(Tool):
             to=self._chat_id,
             delete_after_run=delete_after_run,
         )
-        schedule_label = "one-time" if schedule.kind == "at" else "recurring"
+        schedule_label = "one-time" if mode == "one_time" else "recurring"
         return f"Created {schedule_label} job '{job.name}' (id: {job.id}, mode: {mode})"
     
     def _list_jobs(self) -> str:

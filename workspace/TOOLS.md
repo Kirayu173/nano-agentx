@@ -28,6 +28,11 @@ List contents of a directory.
 list_dir(path: str) -> str
 ```
 
+## Memory Files
+
+- `memory/MEMORY.md` stores long-term facts and is loaded into context.
+- `memory/HISTORY.md` stores append-only event logs; use `exec` + grep to recall history.
+
 ## Shell Execution
 
 ### exec
@@ -188,29 +193,35 @@ todo(
 - `review_daily` is idempotent per day.
 - Due dates do not create reminders automatically.
 
-## Scheduled Reminders (Cron)
+## Scheduled Tasks (Cron)
 
-Use the `exec` tool to create scheduled reminders with `nanobot cron add`:
-
-### Set a recurring reminder
-```bash
-# Every day at 9am
-nanobot cron add --name "morning" --message "Good morning! ☀️" --cron "0 9 * * *"
-
-# Every 2 hours
-nanobot cron add --name "water" --message "Drink water! 💧" --every 7200
+### cron
+Schedule periodic reminders, periodic tasks, and one-time reminders.
+```
+cron(
+  action: str,                 # add | list | remove
+  message: str = "",
+  mode: str = "reminder",      # reminder | task | one_time
+  every_seconds: int = None,
+  cron_expr: str = None,
+  in_seconds: int = None,
+  at: str = None,
+  job_id: str = None
+) -> str
 ```
 
-### Set a one-time reminder
-```bash
-# At a specific time (ISO format)
-nanobot cron add --name "meeting" --message "Meeting starts now!" --at "2025-01-31T15:00:00"
-```
+Mode rules:
+- `reminder`: periodic only (`every_seconds` or `cron_expr`), direct delivery.
+- `task`: periodic only (`every_seconds` or `cron_expr`), executes via agent turn.
+- `one_time`: one-shot only (`in_seconds` or `at`), auto-deletes after run.
 
-### Manage reminders
-```bash
-nanobot cron list              # List all jobs
-nanobot cron remove <job_id>   # Remove a job
+Examples:
+```python
+cron(action="add", mode="reminder", message="Drink water", every_seconds=3600)
+cron(action="add", mode="task", message="Generate daily digest", cron_expr="50 22 * * *")
+cron(action="add", mode="one_time", message="Stand up now", in_seconds=120)
+cron(action="list")
+cron(action="remove", job_id="abc123")
 ```
 
 ## Heartbeat Task Management

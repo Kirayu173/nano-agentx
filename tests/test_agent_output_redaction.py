@@ -89,6 +89,7 @@ def _build_loop(
     provider: LLMProvider,
     *,
     session_manager: InMemorySessionManager,
+    memory_window: int = 50,
 ) -> AgentLoop:
     return AgentLoop(
         bus=MessageBus(),
@@ -96,6 +97,7 @@ def _build_loop(
         workspace=workspace,
         web_browser_config=BrowserToolConfig(enabled=False),
         session_manager=session_manager,
+        memory_window=memory_window,
     )
 
 
@@ -135,7 +137,7 @@ async def test_process_direct_redacts_response_and_saved_assistant_content(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_process_direct_honors_session_key_override(tmp_path: Path) -> None:
+async def test_process_direct_passes_explicit_session_key(tmp_path: Path) -> None:
     workspace = (tmp_path / "workspace").resolve()
     workspace.mkdir(parents=True, exist_ok=True)
 

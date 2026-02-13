@@ -1,3 +1,5 @@
+import pytest
+
 from nanobot.agent.loop import AgentLoop
 from nanobot.agent.subagent import SubagentManager
 from nanobot.bus.queue import MessageBus
@@ -6,6 +8,10 @@ from nanobot.providers.base import LLMProvider, LLMResponse
 
 
 class DummyProvider(LLMProvider):
+    def __init__(self):
+        super().__init__(api_key="test-key", api_base="http://127.0.0.1:8000/v1")
+        self.last_tools: list[dict] = []
+
     async def chat(
         self,
         messages,
@@ -14,10 +20,23 @@ class DummyProvider(LLMProvider):
         max_tokens=4096,
         temperature=0.7,
     ) -> LLMResponse:
+        self.last_tools = list(tools or [])
         return LLMResponse(content="ok")
 
     def get_default_model(self) -> str:
         return "dummy/model"
+
+
+def _tool_names(tool_defs: list[dict]) -> set[str]:
+    names: set[str] = set()
+    for item in tool_defs:
+        if isinstance(item, dict):
+            fn = item.get("function")
+            if isinstance(fn, dict):
+                name = fn.get("name")
+                if isinstance(name, str):
+                    names.add(name)
+    return names
 
 
 def test_agent_loop_registers_codex_tool_when_enabled(tmp_path) -> None:
@@ -44,27 +63,33 @@ def test_agent_loop_does_not_register_codex_tool_when_disabled(tmp_path) -> None
     assert "codex_merge" not in loop.tools.tool_names
 
 
-def test_subagent_registers_codex_tool_when_enabled(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_subagent_registers_codex_tool_when_enabled(tmp_path) -> None:
+    provider = DummyProvider()
     manager = SubagentManager(
-        provider=DummyProvider(),
+        provider=provider,
         workspace=tmp_path,
         bus=MessageBus(),
         web_browser_config=BrowserToolConfig(enabled=False),
         codex_config=CodexToolConfig(enabled=True),
     )
-    tools = manager._build_tool_registry()
-    assert "codex_run" in tools.tool_names
-    assert "codex_merge" in tools.tool_names
+    await manager._run_subagent("t1", "noop", "noop", {"channel": "cli", "chat_id": "direct"})
+    names = _tool_names(provider.last_tools)
+    assert "codex_run" in names
+    assert "codex_merge" in names
 
 
-def test_subagent_does_not_register_codex_tool_when_disabled(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_subagent_does_not_register_codex_tool_when_disabled(tmp_path) -> None:
+    provider = DummyProvider()
     manager = SubagentManager(
-        provider=DummyProvider(),
+        provider=provider,
         workspace=tmp_path,
         bus=MessageBus(),
         web_browser_config=BrowserToolConfig(enabled=False),
         codex_config=CodexToolConfig(enabled=False),
     )
-    tools = manager._build_tool_registry()
-    assert "codex_run" not in tools.tool_names
-    assert "codex_merge" not in tools.tool_names
+    await manager._run_subagent("t2", "noop", "noop", {"channel": "cli", "chat_id": "direct"})
+    names = _tool_names(provider.last_tools)
+    assert "codex_run" not in names
+    assert "codex_merge" not in names

@@ -22,4 +22,5 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `summarize` | Summarize URLs, files, and YouTube videos |
 | `tmux` | Remote-control tmux sessions |
 | `skill-creator` | Create new skills |
+| `memory` | Use two-layer memory with searchable history logs |
 | `todo-organizer` | Organize and maintain TODO tasks with the `todo` tool |

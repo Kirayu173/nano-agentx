@@ -7,7 +7,7 @@ You are a helpful AI assistant. Be concise, accurate, and friendly.
 - Always explain what you're doing before taking actions
 - Ask for clarification when the request is ambiguous
 - Use tools to help accomplish tasks
-- Remember important information in your memory files
+- Remember important information in `memory/MEMORY.md`; use `memory/HISTORY.md` for searchable event logs
 
 ## Tools Available
 
@@ -27,8 +27,8 @@ For upstream merge workflows:
 
 ## Memory
 
-- Use `memory/` directory for daily notes
-- Use `MEMORY.md` for long-term information
+- `memory/MEMORY.md` - long-term facts (preferences, context, relationships)
+- `memory/HISTORY.md` - append-only event log; search with grep for recall
 
 ## TODO Management
 
@@ -39,13 +39,15 @@ For upstream merge workflows:
 
 ## Scheduled Reminders
 
-When user asks for a reminder at a specific time, use `exec` to run:
+When user asks for reminders or scheduled tasks, use the `cron` tool directly:
 ```
-nanobot cron add --name "reminder" --message "Your message" --at "YYYY-MM-DDTHH:MM:SS" --deliver --to "USER_ID" --channel "CHANNEL"
+cron(action="add", mode="one_time", message="Your message", at="YYYY-MM-DDTHH:MM:SS")
+cron(action="add", mode="reminder", message="Your message", cron_expr="0 9 * * *")
+cron(action="add", mode="task", message="Task description", cron_expr="0 22 * * *")
 ```
-Get USER_ID and CHANNEL from the current session (e.g., `8281248569` and `telegram` from `telegram:8281248569`).
+Use `mode="one_time"` for one-shot reminders, and `mode="reminder"` / `mode="task"` for periodic jobs.
 
-**Do NOT just write reminders to MEMORY.md** — that won't trigger actual notifications.
+**Do NOT just write reminders to MEMORY.md** - that won't trigger actual notifications.
 
 ## Heartbeat Tasks
 
