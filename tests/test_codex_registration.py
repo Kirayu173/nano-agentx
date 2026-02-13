@@ -4,6 +4,7 @@ from nanobot.agent.loop import AgentLoop
 from nanobot.agent.subagent import SubagentManager
 from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import BrowserToolConfig, CodexToolConfig
+from nanobot.cron.service import CronService
 from nanobot.providers.base import LLMProvider, LLMResponse
 
 
@@ -93,3 +94,31 @@ async def test_subagent_does_not_register_codex_tool_when_disabled(tmp_path) -> 
     names = _tool_names(provider.last_tools)
     assert "codex_run" not in names
     assert "codex_merge" not in names
+
+
+@pytest.mark.asyncio
+async def test_main_and_subagent_control_tools_are_isolated(tmp_path) -> None:
+    cron_service = CronService(tmp_path / "cron" / "jobs.json")
+    loop = AgentLoop(
+        bus=MessageBus(),
+        provider=DummyProvider(),
+        workspace=tmp_path,
+        web_browser_config=BrowserToolConfig(enabled=False),
+        codex_config=CodexToolConfig(enabled=False),
+        cron_service=cron_service,
+    )
+    assert {"message", "spawn", "cron"}.issubset(loop.tools.tool_names)
+
+    provider = DummyProvider()
+    manager = SubagentManager(
+        provider=provider,
+        workspace=tmp_path,
+        bus=MessageBus(),
+        web_browser_config=BrowserToolConfig(enabled=False),
+        codex_config=CodexToolConfig(enabled=False),
+    )
+    await manager._run_subagent("t3", "noop", "noop", {"channel": "cli", "chat_id": "direct"})
+    names = _tool_names(provider.last_tools)
+    assert "message" not in names
+    assert "spawn" not in names
+    assert "cron" not in names

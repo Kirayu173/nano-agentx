@@ -8,8 +8,9 @@ import pytest
 
 from nanobot.agent.tools.codex.merge_tool import CodexMergeTool
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.cli.commands import _migrate_codex_merge_cron, execute_cron_job
 from nanobot.config.schema import CodexToolConfig
+from nanobot.cron.dispatcher import dispatch_cron_job
+from nanobot.cron.migrations import migrate_codex_merge_cron
 from nanobot.cron.service import CronService
 from nanobot.cron.types import CronJob, CronPayload, CronSchedule
 
@@ -75,7 +76,7 @@ async def test_tool_call_payload_dispatches_directly_to_tool_registry() -> None:
         )
     )
 
-    result = await execute_cron_job(job, agent, bus)
+    result = await dispatch_cron_job(job, agent, bus)
 
     assert result == "tool-result"
     assert agent.tools.calls == [("codex_merge", {"action": "list"})]
@@ -96,7 +97,7 @@ async def test_tool_call_payload_delivers_tool_result_when_enabled() -> None:
         )
     )
 
-    await execute_cron_job(job, agent, bus)
+    await dispatch_cron_job(job, agent, bus)
 
     assert len(bus.messages) == 1
     assert bus.messages[0].channel == "telegram"
@@ -109,7 +110,7 @@ async def test_tool_call_payload_without_tool_name_returns_error() -> None:
     bus = FakeBus()
     job = _job(CronPayload(kind="tool_call", deliver=False))
 
-    result = await execute_cron_job(job, agent, bus)
+    result = await dispatch_cron_job(job, agent, bus)
 
     assert result == "Error: tool_name is required for tool_call payload"
     assert agent.tools.calls == []
@@ -139,7 +140,7 @@ async def test_migrate_codex_merge_cron_replaces_legacy_job_and_report_dir(tmp_p
             job.id = "8dbfbddb"
     service._save_store()
 
-    _migrate_codex_merge_cron(service, workspace)
+    migrate_codex_merge_cron(service, workspace)
     jobs = service.list_jobs(include_disabled=True)
 
     assert not any(job.id == "8dbfbddb" for job in jobs)
@@ -217,7 +218,7 @@ async def test_end_to_end_orchestration_with_cron_plan_then_revise_and_execute(t
         )
     )
 
-    planned = json.loads((await execute_cron_job(cron_job, agent, bus)) or "{}")
+    planned = json.loads((await dispatch_cron_job(cron_job, agent, bus)) or "{}")
     revised = json.loads(
         await tool.execute(
             action="revise_plan",

@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from nanobot.agent.loop import AgentLoop
-from nanobot.bus.events import InboundMessage
+from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import BrowserToolConfig
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
@@ -99,6 +99,51 @@ def _build_loop(
         session_manager=session_manager,
         memory_window=memory_window,
     )
+
+
+@pytest.mark.asyncio
+async def test_outbound_policy_delegation_paths_are_used(tmp_path: Path) -> None:
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    provider = ScriptedProvider([LLMResponse(content="ok")])
+    sessions = InMemorySessionManager()
+    loop = _build_loop(workspace, provider, session_manager=sessions)
+
+    class StubPolicy:
+        def __init__(self):
+            self.redact_called_with: str | None = None
+            self.normalize_called_with: list[str] | None = None
+
+        def redact_text(self, content: str | None) -> str:
+            self.redact_called_with = content
+            return "redacted-by-stub"
+
+        def normalize_media_paths(self, media: list[str] | None) -> list[str]:
+            self.normalize_called_with = media
+            return ["normalized-by-stub"]
+
+        def redact_outbound(self, msg: OutboundMessage) -> OutboundMessage:
+            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content="outbound-by-stub")
+
+        def extract_latest_image(self, media: list[str] | None) -> str | None:
+            return None
+
+        def remember_recent_image(self, session: Any, image_path: str) -> None:
+            return None
+
+        def consume_recent_image(self, session: Any) -> str | None:
+            return None
+
+    stub = StubPolicy()
+    loop.outbound_policy = stub  # type: ignore[assignment]
+
+    assert loop._redact_text("secret-text") == "redacted-by-stub"
+    assert loop._normalize_media_paths(["workspace/a.png"]) == ["normalized-by-stub"]
+    redacted_outbound = loop._redact_outbound(OutboundMessage(channel="cli", chat_id="direct", content="x"))
+    assert redacted_outbound.content == "outbound-by-stub"
+    assert stub.redact_called_with == "secret-text"
+    assert stub.normalize_called_with == ["workspace/a.png"]
 
 
 @pytest.mark.asyncio

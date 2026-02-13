@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import mimetypes
 from pathlib import Path
 from typing import Any
 
@@ -10,17 +9,13 @@ from loguru import logger
 
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryStore
+from nanobot.agent.runtime.outbound_policy import OutboundPolicy
 from nanobot.agent.subagent import SubagentManager
-from nanobot.agent.tools.browser import BrowserRunTool
-from nanobot.agent.tools.codex import CodexMergeTool, CodexRunTool
 from nanobot.agent.tools.cron import CronTool
-from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
+from nanobot.agent.tools.factory import build_main_agent_tool_registry
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
-from nanobot.agent.tools.todo import TodoTool
-from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.config.loader import get_config_path
@@ -84,6 +79,12 @@ class AgentLoop:
             config_path=get_config_path(),
             extra_secrets=[provider.api_key or "", provider.api_base or ""],
         )
+        self.outbound_policy = OutboundPolicy(
+            workspace=workspace,
+            redactor=self.redactor,
+            recent_image_meta_key=self._RECENT_IMAGE_META_KEY,
+            recent_image_followup_turns=self._RECENT_IMAGE_FOLLOWUP_TURNS,
+        )
         
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
@@ -106,202 +107,51 @@ class AgentLoop:
     
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
-        # File tools (restrict to workspace if configured)
-        allowed_dir = self.workspace if self.restrict_to_workspace else None
-        self.tools.register(ReadFileTool(allowed_dir=allowed_dir, workspace=self.workspace))
-        self.tools.register(WriteFileTool(allowed_dir=allowed_dir, workspace=self.workspace))
-        self.tools.register(EditFileTool(allowed_dir=allowed_dir, workspace=self.workspace))
-        self.tools.register(ListDirTool(allowed_dir=allowed_dir, workspace=self.workspace))
-        
-        # Shell tool
-        self.tools.register(ExecTool(
-            working_dir=str(self.workspace),
-            timeout=self.exec_config.timeout,
+        self.tools = build_main_agent_tool_registry(
+            workspace=self.workspace,
             restrict_to_workspace=self.restrict_to_workspace,
-        ))
-        if self.codex_config.enabled:
-            self.tools.register(CodexRunTool(
-                workspace=self.workspace,
-                codex_config=self.codex_config,
-                restrict_to_workspace=self.restrict_to_workspace,
-            ))
-            self.tools.register(CodexMergeTool(
-                workspace=self.workspace,
-                codex_config=self.codex_config,
-                restrict_to_workspace=self.restrict_to_workspace,
-            ))
-        
-        # Web tools
-        self.tools.register(WebSearchTool(web_search_config=self.web_search_config))
-        self.tools.register(WebFetchTool())
-        if self.web_browser_config.enabled:
-            self.tools.register(
-                BrowserRunTool(
-                    workspace=self.workspace,
-                    web_browser_config=self.web_browser_config,
-                )
-            )
-        
-        # TODO management tool
-        self.tools.register(TodoTool(workspace=self.workspace))
-        
-        # Message tool
-        message_tool = MessageTool(send_callback=self._publish_outbound_safe)
-        self.tools.register(message_tool)
-        
-        # Spawn tool (for subagents)
-        spawn_tool = SpawnTool(manager=self.subagents)
-        self.tools.register(spawn_tool)
-        
-        # Cron tool (for scheduling)
-        if self.cron_service:
-            self.tools.register(CronTool(self.cron_service))
+            exec_config=self.exec_config,
+            codex_config=self.codex_config,
+            web_search_config=self.web_search_config,
+            web_browser_config=self.web_browser_config,
+            message_send_callback=self._publish_outbound_safe,
+            spawn_manager=self.subagents,
+            cron_service=self.cron_service,
+        )
 
     def _redact_text(self, content: str | None) -> str:
         """Apply output redaction policy to text."""
-        return self.redactor.redact(content or "")
+        return self.outbound_policy.redact_text(content)
 
     def _normalize_media_paths(self, media: list[str] | None) -> list[str]:
-        """
-        Normalize outbound media paths to absolute paths.
-
-        Preference order for relative paths:
-        1) Current process working directory
-        2) Agent workspace path (with special handling for "workspace/..." prefix)
-        """
-        if not media:
-            return []
-
-        normalized: list[str] = []
-        for raw_path in media:
-            if not isinstance(raw_path, str):
-                continue
-
-            text = raw_path.strip()
-            if not text:
-                continue
-
-            try:
-                p = Path(text).expanduser()
-                candidates: list[Path] = []
-
-                if p.is_absolute():
-                    candidates.append(p)
-                else:
-                    candidates.append(Path.cwd() / p)
-
-                    normalized_text = text.replace("\\", "/")
-                    if normalized_text.startswith("workspace/"):
-                        rel = normalized_text[len("workspace/"):]
-                        if rel:
-                            candidates.append(self.workspace / rel)
-
-                    candidates.append(self.workspace / p)
-
-                chosen = next(
-                    (candidate.resolve(strict=False) for candidate in candidates
-                     if candidate.exists() and candidate.is_file()),
-                    None,
-                )
-
-                if chosen is None:
-                    if not p.is_absolute():
-                        normalized_text = text.replace("\\", "/")
-                        if normalized_text.startswith("workspace/"):
-                            rel = normalized_text[len("workspace/"):]
-                            if rel:
-                                chosen = (self.workspace / rel).resolve(strict=False)
-                    if chosen is None:
-                        chosen = (p if p.is_absolute() else (self.workspace / p)).resolve(strict=False)
-
-                normalized.append(str(chosen))
-            except Exception:
-                # Keep original value if normalization fails unexpectedly.
-                normalized.append(text)
-
-        return normalized
+        """Normalize outbound media paths to absolute paths."""
+        return self.outbound_policy.normalize_media_paths(media)
 
     @staticmethod
     def _ensure_session_metadata(session: Any) -> dict[str, Any]:
         """Return mutable metadata dict for a session, creating it if needed."""
-        metadata = getattr(session, "metadata", None)
-        if isinstance(metadata, dict):
-            return metadata
-        metadata = {}
-        try:
-            session.metadata = metadata
-        except Exception:
-            # Fallback for custom session objects without writable metadata.
-            pass
-        return metadata
+        return OutboundPolicy._ensure_session_metadata(session)
 
     @staticmethod
     def _is_image_file(path: str) -> bool:
         """Check whether path points to a readable image file."""
-        p = Path(path)
-        if not p.exists() or not p.is_file():
-            return False
-        mime, _ = mimetypes.guess_type(str(p))
-        return bool(mime and mime.startswith("image/"))
+        return OutboundPolicy._is_image_file(path)
 
     def _extract_latest_image(self, media: list[str] | None) -> str | None:
         """Pick the latest image path from a media list."""
-        if not media:
-            return None
-        for candidate in reversed(media):
-            if not isinstance(candidate, str):
-                continue
-            text = candidate.strip()
-            if not text:
-                continue
-            if self._is_image_file(text):
-                return str(Path(text).resolve(strict=False))
-        return None
+        return self.outbound_policy.extract_latest_image(media)
 
     def _remember_recent_image(self, session: Any, image_path: str) -> None:
         """Store latest image for short follow-up reuse."""
-        metadata = self._ensure_session_metadata(session)
-        metadata[self._RECENT_IMAGE_META_KEY] = {
-            "path": image_path,
-            "turns_left": self._RECENT_IMAGE_FOLLOWUP_TURNS,
-        }
+        self.outbound_policy.remember_recent_image(session, image_path)
 
     def _consume_recent_image(self, session: Any) -> str | None:
         """Reuse recent image for one turn and decrement remaining turns."""
-        metadata = self._ensure_session_metadata(session)
-        raw = metadata.get(self._RECENT_IMAGE_META_KEY)
-        if not isinstance(raw, dict):
-            metadata.pop(self._RECENT_IMAGE_META_KEY, None)
-            return None
-
-        path = raw.get("path")
-        turns_left = raw.get("turns_left")
-        if not isinstance(path, str) or not isinstance(turns_left, int) or turns_left <= 0:
-            metadata.pop(self._RECENT_IMAGE_META_KEY, None)
-            return None
-
-        if not self._is_image_file(path):
-            metadata.pop(self._RECENT_IMAGE_META_KEY, None)
-            return None
-
-        turns_left -= 1
-        if turns_left <= 0:
-            metadata.pop(self._RECENT_IMAGE_META_KEY, None)
-        else:
-            metadata[self._RECENT_IMAGE_META_KEY] = {"path": path, "turns_left": turns_left}
-
-        return path
+        return self.outbound_policy.consume_recent_image(session)
 
     def _redact_outbound(self, msg: OutboundMessage) -> OutboundMessage:
         """Return a copy of outbound message with redacted content."""
-        return OutboundMessage(
-            channel=msg.channel,
-            chat_id=msg.chat_id,
-            content=self._redact_text(msg.content),
-            reply_to=msg.reply_to,
-            media=self._normalize_media_paths(msg.media),
-            metadata=msg.metadata,
-        )
+        return self.outbound_policy.redact_outbound(msg)
 
     async def _publish_outbound_safe(self, msg: OutboundMessage) -> None:
         """Publish outbound messages after redacting sensitive content."""

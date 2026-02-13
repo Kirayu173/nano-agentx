@@ -11,13 +11,7 @@ from loguru import logger
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
-from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
-from nanobot.agent.tools.shell import ExecTool
-from nanobot.agent.tools.codex import CodexMergeTool, CodexRunTool
-from nanobot.agent.tools.todo import TodoTool
-from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
-from nanobot.agent.tools.browser import BrowserRunTool
+from nanobot.agent.tools.factory import build_subagent_tool_registry
 from nanobot.config.schema import BrowserToolConfig, CodexToolConfig, ExecToolConfig, WebSearchConfig
 
 
@@ -108,44 +102,14 @@ class SubagentManager:
         
         try:
             # Build subagent tools (no message tool, no spawn tool)
-            tools = ToolRegistry()
-            allowed_dir = self.workspace if self.restrict_to_workspace else None
-            tools.register(ReadFileTool(allowed_dir=allowed_dir, workspace=self.workspace))
-            tools.register(WriteFileTool(allowed_dir=allowed_dir, workspace=self.workspace))
-            tools.register(EditFileTool(allowed_dir=allowed_dir, workspace=self.workspace))
-            tools.register(ListDirTool(allowed_dir=allowed_dir, workspace=self.workspace))
-            tools.register(
-                ExecTool(
-                    working_dir=str(self.workspace),
-                    timeout=self.exec_config.timeout,
-                    restrict_to_workspace=self.restrict_to_workspace,
-                )
+            tools = build_subagent_tool_registry(
+                workspace=self.workspace,
+                restrict_to_workspace=self.restrict_to_workspace,
+                exec_config=self.exec_config,
+                codex_config=self.codex_config,
+                web_search_config=self.web_search_config,
+                web_browser_config=self.web_browser_config,
             )
-            if self.codex_config.enabled:
-                tools.register(
-                    CodexRunTool(
-                        workspace=self.workspace,
-                        codex_config=self.codex_config,
-                        restrict_to_workspace=self.restrict_to_workspace,
-                    )
-                )
-                tools.register(
-                    CodexMergeTool(
-                        workspace=self.workspace,
-                        codex_config=self.codex_config,
-                        restrict_to_workspace=self.restrict_to_workspace,
-                    )
-                )
-            tools.register(TodoTool(workspace=self.workspace))
-            tools.register(WebSearchTool(web_search_config=self.web_search_config))
-            tools.register(WebFetchTool())
-            if self.web_browser_config.enabled:
-                tools.register(
-                    BrowserRunTool(
-                        workspace=self.workspace,
-                        web_browser_config=self.web_browser_config,
-                    )
-                )
             
             # Build messages with subagent-specific prompt
             system_prompt = self._build_subagent_prompt(task)
