@@ -211,7 +211,26 @@ class AgentLoop:
         logger.info(f"Processing message from {msg.channel}:{msg.sender_id}: {preview}")
         
         # Get or create session
-        session = self.sessions.get_or_create(session_key or msg.session_key)
+        key = session_key or msg.session_key
+        session = self.sessions.get_or_create(key)
+
+        # Handle slash commands
+        cmd = msg.content.strip().lower()
+        if cmd == "/new":
+            await self._consolidate_memory(session, archive_all=True)
+            session.clear()
+            self.sessions.save(session)
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="New session started. Memory consolidated.",
+            )
+        if cmd == "/help":
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="nanobot commands:\n/new - Start a new conversation\n/help - Show available commands",
+            )
 
         # Consolidate memory before processing if session is too large.
         if len(session.messages) > self.memory_window:
@@ -301,7 +320,10 @@ class AgentLoop:
                 break
         
         if final_content is None:
-            final_content = "I've completed processing but have no response to give."
+            if iteration >= self.max_iterations:
+                final_content = f"Reached {self.max_iterations} iterations without completion."
+            else:
+                final_content = "I've completed processing but have no response to give."
         final_content = self._redact_text(final_content)
         
         # Log response preview
@@ -432,12 +454,17 @@ class AgentLoop:
             chat_id=origin_chat_id,
             content=final_content
         )
-
-    async def _consolidate_memory(self, session: Any) -> None:
+    async def _consolidate_memory(self, session: Any, archive_all: bool = False) -> None:
         """Consolidate old messages into MEMORY.md + HISTORY.md, then trim session."""
+        if not session.messages:
+            return
         memory = MemoryStore(self.workspace)
-        keep_count = min(10, max(2, self.memory_window // 2))
-        old_messages = session.messages[:-keep_count]
+        if archive_all:
+            old_messages = session.messages
+            keep_count = 0
+        else:
+            keep_count = min(10, max(2, self.memory_window // 2))
+            old_messages = session.messages[:-keep_count]
         if not old_messages:
             return
         logger.info(
@@ -496,7 +523,7 @@ Respond with ONLY valid JSON, no markdown fences."""
             if isinstance(memory_update, str) and memory_update != current_memory:
                 memory.write_long_term(memory_update)
 
-            session.messages = session.messages[-keep_count:]
+            session.messages = session.messages[-keep_count:] if keep_count else []
             self.sessions.save(session)
             logger.info(f"Memory consolidation done, session trimmed to {len(session.messages)} messages")
         except Exception as e:
