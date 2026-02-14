@@ -18,23 +18,6 @@ venv/
 __pycache__/
 poetry.lock
 .pytest_cache/
-tests/*
-!tests/test_docker.sh
-!tests/test_email_channel.py
-!tests/test_tool_validation.py
-!tests/test_redaction.py
-!tests/test_agent_output_redaction.py
-!tests/test_todo_tool.py
-!tests/test_todo_storage.py
-!tests/test_todo_registration.py
-!tests/test_todo_e2e.py
-!tests/test_message_tool.py
-!tests/test_feishu_channel.py
-!tests/test_codex_tool.py
-!tests/test_codex_registration.py
-!tests/test_codex_merge_tool.py
-!tests/test_cron_tool_call_dispatch.py
-!tests/test_memory_consolidation.py
 botpy.log
 # Runtime artifacts
 workspace/.nanobot/
@@ -42,4 +25,3 @@ workspace/.tmp-playwright-browsers/
 logs/
 gateway.log
 /logs/gateway.log
-.env
