@@ -23,4 +23,5 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `tmux` | Remote-control tmux sessions |
 | `skill-creator` | Create new skills |
 | `memory` | Use two-layer memory with searchable history logs |
+| `tavily-search` | AI-optimized Tavily web search and URL extraction |
 | `todo-organizer` | Organize and maintain TODO tasks with the `todo` tool |
