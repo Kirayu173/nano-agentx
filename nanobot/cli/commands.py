@@ -373,7 +373,7 @@ def gateway(
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
         on_heartbeat=on_heartbeat,
-        interval_s=30 * 60,  # 30 minutes
+        interval_s=3 * 60 * 60,  # 3 hours
         enabled=True
     )
     

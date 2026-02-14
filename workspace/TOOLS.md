@@ -226,7 +226,7 @@ cron(action="remove", job_id="abc123")
 
 ## Heartbeat Task Management
 
-The `HEARTBEAT.md` file in the workspace is checked every 30 minutes.
+The `HEARTBEAT.md` file in the workspace is checked every 3 hours.
 Use file operations to manage periodic tasks:
 
 ### Add a heartbeat task

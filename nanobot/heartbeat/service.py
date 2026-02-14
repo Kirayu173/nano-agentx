@@ -6,8 +6,8 @@ from typing import Any, Callable, Coroutine
 
 from loguru import logger
 
-# Default interval: 30 minutes
-DEFAULT_HEARTBEAT_INTERVAL_S = 30 * 60
+# Default interval: 3 hours
+DEFAULT_HEARTBEAT_INTERVAL_S = 3 * 60 * 60
 
 # The prompt sent to agent during heartbeat
 HEARTBEAT_PROMPT = """Read HEARTBEAT.md in your workspace (if it exists).

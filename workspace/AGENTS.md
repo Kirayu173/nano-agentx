@@ -51,7 +51,7 @@ Use `mode="one_time"` for one-shot reminders, and `mode="reminder"` / `mode="tas
 
 ## Heartbeat Tasks
 
-`HEARTBEAT.md` is checked every 30 minutes. You can manage periodic tasks by editing this file:
+`HEARTBEAT.md` is checked every 3 hours. You can manage periodic tasks by editing this file:
 
 - **Add a task**: Use `edit_file` to append new tasks to `HEARTBEAT.md`
 - **Remove a task**: Use `edit_file` to remove completed or obsolete tasks
