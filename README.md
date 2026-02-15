@@ -719,6 +719,37 @@ Design constraints:
 - codex performs repository changes, merge conflict handling, git operations, and push
 - `execute_merge` requires `tools.codex.allowDangerousFullAccess = true`
 
+### MCP (Model Context Protocol)
+
+> [!TIP]
+> The config format is compatible with Claude Desktop / Cursor. You can copy MCP server configs directly from any MCP server's README.
+
+nanobot supports [MCP](https://modelcontextprotocol.io/) - connect external tool servers and use them as native agent tools.
+
+Add MCP servers to your `config.json`:
+
+```json
+{
+  "tools": {
+    "mcpServers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+      }
+    }
+  }
+}
+```
+
+Two transport modes are supported:
+
+| Mode | Config | Example |
+|------|--------|---------|
+| **Stdio** | `command` + `args` | Local process via `npx` / `uvx` |
+| **HTTP** | `url` | Remote endpoint (`https://mcp.example.com/sse`) |
+
+MCP tools are automatically discovered and registered on startup. The LLM can use them alongside built-in tools - no extra configuration needed.
+
 ### Security
 
 > For production deployments, set `"restrictToWorkspace": true` in your config to sandbox the agent.
@@ -729,6 +760,7 @@ Design constraints:
 | `tools.web.browser.enabled` | `true` | Enables the Playwright-based `browser_run` tool for dynamic website automation. |
 | `tools.codex.enabled` | `false` | Enables the `codex_run` tool (Codex CLI integration). |
 | `tools.codex.allowDangerousFullAccess` | `false` | Enables full access mode for all `codex_run` calls. |
+| `tools.mcpServers` | `{}` | Registers MCP servers and auto-exposes MCP tools (`mcp_<server>_<tool>`). |
 | `security.redactSensitiveOutput` | `true` | Redacts sensitive output (paths, local endpoints, keys/tokens/secrets, prompt snippets, chat IDs) before sending responses to users. |
 | `channels.*.allowFrom` | `[]` (allow all) | Whitelist of user IDs. Empty = allow everyone; non-empty = only listed users can interact. |
 

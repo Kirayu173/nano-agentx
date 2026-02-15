@@ -357,6 +357,7 @@ def gateway(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         redact_sensitive_output=config.security.redact_sensitive_output,
         session_manager=session_manager,
+        mcp_servers=config.tools.mcp_servers,
     )
     
     # Set cron callback (needs agent)
@@ -401,6 +402,8 @@ def gateway(
             )
         except KeyboardInterrupt:
             console.print("\nShutting down...")
+        finally:
+            await agent.close_mcp()
             heartbeat.stop()
             cron.stop()
             agent.stop()
@@ -455,6 +458,7 @@ def agent(
         codex_config=config.tools.codex,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         redact_sensitive_output=config.security.redact_sensitive_output,
+        mcp_servers=config.tools.mcp_servers,
     )
     
     # Show spinner when logs are off (no output to miss); skip when logs are on
@@ -471,6 +475,7 @@ def agent(
             with _thinking_ctx():
                 response = await agent_loop.process_direct(message, session_id)
             _print_agent_response(response, render_markdown=markdown)
+            await agent_loop.close_mcp()
         
         asyncio.run(run_once())
     else:
@@ -486,30 +491,33 @@ def agent(
         signal.signal(signal.SIGINT, _exit_on_sigint)
         
         async def run_interactive():
-            while True:
-                try:
-                    _flush_pending_tty_input()
-                    user_input = await _read_interactive_input_async()
-                    command = user_input.strip()
-                    if not command:
-                        continue
+            try:
+                while True:
+                    try:
+                        _flush_pending_tty_input()
+                        user_input = await _read_interactive_input_async()
+                        command = user_input.strip()
+                        if not command:
+                            continue
 
-                    if _is_exit_command(command):
+                        if _is_exit_command(command):
+                            _restore_terminal()
+                            console.print("\nGoodbye!")
+                            break
+                        
+                        with _thinking_ctx():
+                            response = await agent_loop.process_direct(user_input, session_id)
+                        _print_agent_response(response, render_markdown=markdown)
+                    except KeyboardInterrupt:
                         _restore_terminal()
                         console.print("\nGoodbye!")
                         break
-                    
-                    with _thinking_ctx():
-                        response = await agent_loop.process_direct(user_input, session_id)
-                    _print_agent_response(response, render_markdown=markdown)
-                except KeyboardInterrupt:
-                    _restore_terminal()
-                    console.print("\nGoodbye!")
-                    break
-                except EOFError:
-                    _restore_terminal()
-                    console.print("\nGoodbye!")
-                    break
+                    except EOFError:
+                        _restore_terminal()
+                        console.print("\nGoodbye!")
+                        break
+            finally:
+                await agent_loop.close_mcp()
         
         asyncio.run(run_interactive())
 
