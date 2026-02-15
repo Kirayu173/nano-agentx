@@ -25,3 +25,4 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `memory` | Use two-layer memory with searchable history logs |
 | `tavily-search` | AI-optimized Tavily web search and URL extraction |
 | `todo-organizer` | Organize and maintain TODO tasks with the `todo` tool |
+| `proactive-agent` | Proactive, persistent, self-improving agent operating architecture |
