@@ -58,8 +58,8 @@ class MessageTool(Tool):
                 },
                 "media": {
                     "type": "array",
-                    "description": "Optional: local file paths to upload as attachments",
                     "items": {"type": "string"},
+                    "description": "Optional: list of file paths to attach (images, audio, documents)"
                 }
             },
             "required": ["content"]

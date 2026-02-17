@@ -33,13 +33,17 @@ def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
         try:
             from croniter import croniter
 
-            base_dt = datetime.fromtimestamp(now_ms / 1000).astimezone()
+            # Use caller-provided reference time for deterministic scheduling.
+            base_time = now_ms / 1000
             if schedule.tz:
                 try:
-                    base_dt = base_dt.astimezone(ZoneInfo(schedule.tz))
+                    tz = ZoneInfo(schedule.tz)
                 except Exception:
                     logger.warning(f"Invalid cron timezone '{schedule.tz}', fallback to local timezone")
-
+                    tz = datetime.now().astimezone().tzinfo
+            else:
+                tz = datetime.now().astimezone().tzinfo
+            base_dt = datetime.fromtimestamp(base_time, tz=tz)
             next_dt = croniter(schedule.expr, base_dt).get_next(datetime)
             if next_dt.tzinfo is None:
                 # Keep behavior deterministic when croniter returns naive datetime.
