@@ -104,6 +104,7 @@ class FeishuChannel(BaseChannel):
     _IMAGE_SUFFIXES = {
         ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".ico", ".tiff", ".tif", ".heic"
     }
+    _AUDIO_SUFFIXES = {".opus"}
     
     def __init__(self, config: FeishuConfig, bus: MessageBus):
         super().__init__(config, bus)
@@ -496,15 +497,21 @@ class FeishuChannel(BaseChannel):
             logger.error(f"Error sending Feishu image message: {e}")
             return False
 
-    def _send_file_key(self, receive_id_type: str, receive_id: str, file_key: str) -> bool:
-        """Send a file message with file_key."""
+    def _send_file_key(
+        self,
+        receive_id_type: str,
+        receive_id: str,
+        file_key: str,
+        msg_type: str = "file",
+    ) -> bool:
+        """Send a file/audio message with file_key."""
         try:
             request = CreateMessageRequest.builder() \
                 .receive_id_type(receive_id_type) \
                 .request_body(
                     CreateMessageRequestBody.builder()
                     .receive_id(receive_id)
-                    .msg_type("file")
+                    .msg_type(msg_type)
                     .content(json.dumps({"file_key": file_key}, ensure_ascii=False))
                     .build()
                 ).build()
@@ -558,7 +565,8 @@ class FeishuChannel(BaseChannel):
                 else:
                     file_key = self._upload_file(path)
                     if file_key:
-                        self._send_file_key(receive_id_type, msg.chat_id, file_key)
+                        media_type = "audio" if path.suffix.lower() in self._AUDIO_SUFFIXES else "file"
+                        self._send_file_key(receive_id_type, msg.chat_id, file_key, media_type)
             
             if not msg.content:
                 return

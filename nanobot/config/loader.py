@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import re
 
 from nanobot.config.schema import Config
 
@@ -31,7 +32,7 @@ def load_config(config_path: Path | None = None) -> Config:
 
     if path.exists():
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             data = _migrate_config(data)
             return Config.model_validate(data)
@@ -55,8 +56,38 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
 
     data = config.model_dump(by_alias=True)
 
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def _snake_to_camel(key: str) -> str:
+    """Convert snake_case key to camelCase."""
+    parts = key.split("_")
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
+
+def _camel_to_snake(key: str) -> str:
+    """Convert camelCase/PascalCase key to snake_case."""
+    s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", key)
+    return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
+
+
+def convert_to_camel(data):
+    """Recursively convert dict keys from snake_case to camelCase."""
+    if isinstance(data, dict):
+        return {_snake_to_camel(str(k)): convert_to_camel(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [convert_to_camel(v) for v in data]
+    return data
+
+
+def convert_keys(data):
+    """Recursively convert dict keys from camelCase to snake_case."""
+    if isinstance(data, dict):
+        return {_camel_to_snake(str(k)): convert_keys(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [convert_keys(v) for v in data]
+    return data
 
 
 def _migrate_config(data: dict) -> dict:
