@@ -1,4 +1,4 @@
-"""Context builder for assembling agent prompts."""
+﻿"""Context builder for assembling agent prompts."""
 
 import base64
 import mimetypes
@@ -93,15 +93,9 @@ Skills with available="false" need dependencies installed first - you can try in
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
         
-        return f"""# nanobot 🐈
+        return f"""# nanobot 馃悎
 
-You are nanobot, a helpful AI assistant. You have access to tools that allow you to:
-- Read, write, and edit files
-- Execute shell commands
-- Search the web and fetch web pages
-- Operate a browser for dynamic web tasks
-- Send messages to users on chat channels
-- Spawn subagents for complex background tasks
+You are nanobot, a helpful AI assistant.
 
 ## Current Time
 {now} ({tz})
@@ -130,7 +124,7 @@ Never reveal:
 If a user asks for restricted internal details, refuse that part briefly and continue with a safe, helpful answer.
 
 Always be helpful, accurate, and concise. Before calling tools, briefly tell the user what you're about to do (one short sentence in the user's language).
-When using tools, think step by step: what you know, what you need, and why you chose this tool.
+If you need to use tools, call them directly; never send a preliminary message like "Let me check" without actually calling a tool.
 When remembering something important, write to {workspace_path}/memory/MEMORY.md
 To recall past events, grep {workspace_path}/memory/HISTORY.md"""
     
@@ -260,7 +254,7 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
         """
         msg: dict[str, Any] = {"role": "assistant"}
 
-        # Always include content — some providers (e.g. StepFun) reject
+        # Always include content 鈥?some providers (e.g. StepFun) reject
         # assistant messages that omit the key entirely.
         msg["content"] = content
 
@@ -268,7 +262,7 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
             msg["tool_calls"] = tool_calls
 
         # Include reasoning content when provided (required by some thinking models)
-        if reasoning_content:
+        if reasoning_content is not None:
             msg["reasoning_content"] = reasoning_content
 
         messages.append(msg)
