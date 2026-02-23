@@ -19,6 +19,19 @@ class ContextBuilder:
     """
     
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
+    _IMAGE_MIME_BY_SUFFIX = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+        ".tif": "image/tiff",
+        ".tiff": "image/tiff",
+        ".ico": "image/x-icon",
+        ".heic": "image/heic",
+        ".heif": "image/heif",
+    }
     
     def __init__(self, workspace: Path):
         self.workspace = workspace
@@ -169,8 +182,8 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         images = []
         for path in media:
             p = Path(path)
-            mime, _ = mimetypes.guess_type(path)
-            if not p.is_file() or not mime or not mime.startswith("image/"):
+            mime = self._guess_image_mime(p)
+            if not p.is_file() or not mime:
                 continue
             b64 = base64.b64encode(p.read_bytes()).decode()
             images.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
@@ -178,6 +191,14 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         if not images:
             return text
         return images + [{"type": "text", "text": text}]
+
+    @classmethod
+    def _guess_image_mime(cls, path: Path) -> str | None:
+        """Guess image MIME; fall back to extension map when OS MIME db is incomplete."""
+        mime, _ = mimetypes.guess_type(str(path))
+        if mime and mime.startswith("image/"):
+            return mime
+        return cls._IMAGE_MIME_BY_SUFFIX.get(path.suffix.lower())
     
     def add_tool_result(
         self,

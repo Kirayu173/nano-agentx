@@ -1,36 +1,59 @@
 # Tool Usage Notes
 
-Tool signatures are provided automatically via function calling.
-This file documents non-obvious constraints and usage patterns.
+Tool signatures are provided automatically via function calling. This file documents non-obvious constraints and patterns.
 
-## exec — Safety Limits
+## File Tools
+
+- `read_file(path)`
+- `write_file(path, content)`
+- `edit_file(path, old_text, new_text)`
+- `list_dir(path)`
+
+When workspace restriction is enabled, file paths outside the workspace are blocked.
+
+## Shell Tool
+
+- `exec(command, working_dir=None)`
+
+Safety notes:
 
 - Commands have a configurable timeout (default 60s)
-- Dangerous commands are blocked (rm -rf, format, dd, shutdown, etc.)
-- Output is truncated at 10,000 characters
-- `restrictToWorkspace` config can limit file access to the workspace
+- Dangerous commands are blocked
+- Output is truncated
+- Workspace restriction may block external paths
 
-## Cron — Scheduled Reminders
+## Web Tools
 
-Use `exec` to create scheduled reminders:
+- `web_search(query, count=5)` supports provider config (`brave`, `tavily`, `serper`)
+- `web_fetch(url, extractMode="markdown", maxChars=50000)`
+- `browser_run(...)` is available only when browser automation is enabled
 
-```bash
-# Recurring: every day at 9am
-nanobot cron add --name "morning" --message "Good morning!" --cron "0 9 * * *"
+## Messaging and Delegation
 
-# With timezone (--tz only works with --cron)
-nanobot cron add --name "standup" --message "Standup time!" --cron "0 10 * * 1-5" --tz "Asia/Shanghai"
+- `message(content, channel=None, chat_id=None, media=None)`
+- `spawn(task, label=None)`
 
-# Recurring: every 2 hours
-nanobot cron add --name "water" --message "Drink water!" --every 7200
+`media` accepts local file paths for channels that support attachments.
 
-# One-time: specific ISO time
-nanobot cron add --name "meeting" --message "Meeting starts now!" --at "2025-01-31T15:00:00"
+## TODO Tool
 
-# Deliver to a specific channel/user
-nanobot cron add --name "reminder" --message "Check email" --at "2025-01-31T09:00:00" --deliver --to "USER_ID" --channel "CHANNEL"
+- `todo(action=..., ...)` manages `memory/todo.md`
 
-# Manage jobs
-nanobot cron list
-nanobot cron remove <job_id>
-```
+Use `todo` as the source of truth for TODO operations. Prefer `review_daily` for daily summaries.
+
+## Cron Tool
+
+- `cron(action=..., mode=..., ...)` schedules reminders and periodic tasks
+
+Mode rules:
+
+- `reminder`: periodic only (`every_seconds` or `cron_expr`)
+- `task`: periodic only, executes via agent turn
+- `one_time`: one-shot only (`in_seconds` or `at`)
+
+## Codex Tools (Optional)
+
+- `codex_run(...)`
+- `codex_merge(...)`
+
+These tools are available only when Codex tooling is enabled in config.
