@@ -7,31 +7,23 @@ from typing import Any
 from nanobot.agent.tools.base import Tool
 
 
-def _resolve_path(
-    path: str,
-    workspace: Path | None = None,
-    allowed_dir: Path | None = None,
-) -> Path:
-    """Resolve a path and optionally enforce directory restriction."""
-    raw = Path(path).expanduser()
-    if raw.is_absolute():
-        resolved = raw.resolve(strict=False)
-    else:
-        base = (workspace or Path.cwd()).expanduser().resolve(strict=False)
-        resolved = (base / raw).resolve(strict=False)
-
+def _resolve_path(path: str, workspace: Path | None = None, allowed_dir: Path | None = None) -> Path:
+    """Resolve path against workspace (if relative) and enforce directory restriction."""
+    p = Path(path).expanduser()
+    if not p.is_absolute() and workspace:
+        p = workspace / p
+    resolved = p.resolve()
     if allowed_dir:
-        root = allowed_dir.expanduser().resolve(strict=False)
         try:
-            resolved.relative_to(root)
-        except ValueError as e:
-            raise PermissionError(f"Path {path} is outside allowed directory {allowed_dir}") from e
+            resolved.relative_to(allowed_dir.resolve())
+        except ValueError:
+            raise PermissionError(f"Path {path} is outside allowed directory {allowed_dir}")
     return resolved
 
 
 class ReadFileTool(Tool):
     """Tool to read file contents."""
-    
+
     def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -64,7 +56,7 @@ class ReadFileTool(Tool):
                 return f"Error: File not found: {path}"
             if not file_path.is_file():
                 return f"Error: Not a file: {path}"
-            
+
             content = file_path.read_text(encoding="utf-8")
             return content
         except PermissionError as e:
@@ -75,7 +67,7 @@ class ReadFileTool(Tool):
 
 class WriteFileTool(Tool):
     """Tool to write content to a file."""
-    
+
     def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -110,7 +102,7 @@ class WriteFileTool(Tool):
             file_path = _resolve_path(path, self._workspace, self._allowed_dir)
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
-            return f"Successfully wrote {len(content)} bytes to {path}"
+            return f"Successfully wrote {len(content)} bytes to {file_path}"
         except PermissionError as e:
             return f"Error: {e}"
         except Exception as e:
@@ -119,7 +111,7 @@ class WriteFileTool(Tool):
 
 class EditFileTool(Tool):
     """Tool to edit a file by replacing text."""
-    
+
     def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -158,20 +150,21 @@ class EditFileTool(Tool):
             file_path = _resolve_path(path, self._workspace, self._allowed_dir)
             if not file_path.exists():
                 return f"Error: File not found: {path}"
-            
+
             content = file_path.read_text(encoding="utf-8")
-            
+
             if old_text not in content:
                 return self._not_found_message(old_text, content, path)
+
             # Count occurrences
             count = content.count(old_text)
             if count > 1:
                 return f"Warning: old_text appears {count} times. Please provide more context to make it unique."
-            
+
             new_content = content.replace(old_text, new_text, 1)
             file_path.write_text(new_content, encoding="utf-8")
-            
-            return f"Successfully edited {path}"
+
+            return f"Successfully edited {file_path}"
         except PermissionError as e:
             return f"Error: {e}"
         except Exception as e:
@@ -202,7 +195,7 @@ class EditFileTool(Tool):
 
 class ListDirTool(Tool):
     """Tool to list directory contents."""
-    
+
     def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -235,15 +228,15 @@ class ListDirTool(Tool):
                 return f"Error: Directory not found: {path}"
             if not dir_path.is_dir():
                 return f"Error: Not a directory: {path}"
-            
+
             items = []
             for item in sorted(dir_path.iterdir()):
                 prefix = "📁 " if item.is_dir() else "📄 "
                 items.append(f"{prefix}{item.name}")
-            
+
             if not items:
                 return f"Directory {path} is empty"
-            
+
             return "\n".join(items)
         except PermissionError as e:
             return f"Error: {e}"

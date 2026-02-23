@@ -43,7 +43,7 @@ _SAVE_MEMORY_TOOL = [
 
 
 class MemoryStore:
-    """Two-layer memory: MEMORY.md (long-term facts) + HISTORY.md (event log)."""
+    """Two-layer memory: MEMORY.md (long-term facts) + HISTORY.md (grep-searchable log)."""
 
     def __init__(self, workspace: Path):
         self.memory_dir = ensure_dir(workspace / "memory")
@@ -51,22 +51,18 @@ class MemoryStore:
         self.history_file = self.memory_dir / "HISTORY.md"
 
     def read_long_term(self) -> str:
-        """Read long-term memory (MEMORY.md)."""
         if self.memory_file.exists():
             return self.memory_file.read_text(encoding="utf-8")
         return ""
 
     def write_long_term(self, content: str) -> None:
-        """Write long-term memory (MEMORY.md)."""
         self.memory_file.write_text(content, encoding="utf-8")
 
     def append_history(self, entry: str) -> None:
-        """Append a searchable event entry to HISTORY.md."""
         with open(self.history_file, "a", encoding="utf-8") as f:
             f.write(entry.rstrip() + "\n\n")
 
     def get_memory_context(self) -> str:
-        """Build memory context injected into prompts."""
         long_term = self.read_long_term()
         return f"## Long-term Memory\n{long_term}" if long_term else ""
 
@@ -78,8 +74,11 @@ class MemoryStore:
         *,
         archive_all: bool = False,
         memory_window: int = 50,
-    ) -> None:
-        """Consolidate old messages into MEMORY.md + HISTORY.md via LLM tool call."""
+    ) -> bool:
+        """Consolidate old messages into MEMORY.md + HISTORY.md via LLM tool call.
+
+        Returns True on success (including no-op), False on failure.
+        """
         if archive_all:
             old_messages = session.messages
             keep_count = 0
@@ -87,13 +86,12 @@ class MemoryStore:
         else:
             keep_count = memory_window // 2
             if len(session.messages) <= keep_count:
-                return
-            last_consolidated = int(getattr(session, "last_consolidated", 0) or 0)
-            if len(session.messages) - last_consolidated <= 0:
-                return
-            old_messages = session.messages[last_consolidated:-keep_count]
+                return True
+            if len(session.messages) - session.last_consolidated <= 0:
+                return True
+            old_messages = session.messages[session.last_consolidated:-keep_count]
             if not old_messages:
-                return
+                return True
             logger.info("Memory consolidation: {} to consolidate, {} keep", len(old_messages), keep_count)
 
         lines = []
@@ -122,23 +120,11 @@ class MemoryStore:
                 model=model,
             )
 
-            if response.has_tool_calls:
-                args = response.tool_calls[0].arguments
-            else:
-                text = (response.content or "").strip()
-                if not text:
-                    logger.warning("Memory consolidation: empty response, skipping")
-                    return
-                try:
-                    args = json.loads(text)
-                except Exception:
-                    logger.warning("Memory consolidation: LLM response is not valid JSON, skipping")
-                    return
+            if not response.has_tool_calls:
+                logger.warning("Memory consolidation: LLM did not call save_memory, skipping")
+                return False
 
-            if not isinstance(args, dict):
-                logger.warning("Memory consolidation: invalid tool arguments payload, skipping")
-                return
-
+            args = response.tool_calls[0].arguments
             if entry := args.get("history_entry"):
                 if not isinstance(entry, str):
                     entry = json.dumps(entry, ensure_ascii=False)
@@ -149,18 +135,9 @@ class MemoryStore:
                 if update != current_memory:
                     self.write_long_term(update)
 
-            if hasattr(session, "last_consolidated"):
-                session.last_consolidated = 0 if archive_all else len(session.messages) - keep_count
-                last_consolidated = session.last_consolidated
-            else:
-                if not archive_all and keep_count > 0:
-                    session.messages = session.messages[-keep_count:]
-                last_consolidated = "n/a"
-
-            logger.info(
-                "Memory consolidation done: {} messages, last_consolidated={}",
-                len(session.messages),
-                last_consolidated,
-            )
-        except Exception as e:
-            logger.error("Memory consolidation failed: {}", e)
+            session.last_consolidated = 0 if archive_all else len(session.messages) - keep_count
+            logger.info("Memory consolidation done: {} messages, last_consolidated={}", len(session.messages), session.last_consolidated)
+            return True
+        except Exception:
+            logger.exception("Memory consolidation failed")
+            return False

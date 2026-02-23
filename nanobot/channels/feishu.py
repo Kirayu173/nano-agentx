@@ -430,8 +430,6 @@ class FeishuChannel(BaseChannel):
         ".opus": "opus", ".mp4": "mp4", ".pdf": "pdf", ".doc": "doc", ".docx": "doc",
         ".xls": "xls", ".xlsx": "xls", ".ppt": "ppt", ".pptx": "ppt",
     }
-    _MAX_FILE_BYTES = 30 * 1024 * 1024
-    _MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
     def _upload_image_sync(self, file_path: str) -> str | None:
         """Upload an image to Feishu and return the image_key."""
@@ -505,18 +503,29 @@ class FeishuChannel(BaseChannel):
             logger.error("Error downloading image {}: {}", image_key, e)
             return None, None
 
-    def _download_file_sync(self, file_key: str) -> tuple[bytes | None, str | None]:
-        """Download a file from Feishu by file_key."""
+    def _download_file_sync(
+        self, message_id: str, file_key: str, resource_type: str = "file"
+    ) -> tuple[bytes | None, str | None]:
+        """Download a file/audio/media from a Feishu message by message_id and file_key."""
         try:
-            request = GetFileRequest.builder().file_key(file_key).build()
-            response = self._client.im.v1.file.get(request)
+            request = (
+                GetMessageResourceRequest.builder()
+                .message_id(message_id)
+                .file_key(file_key)
+                .type(resource_type)
+                .build()
+            )
+            response = self._client.im.v1.message_resource.get(request)
             if response.success():
-                return response.file, response.file_name
+                file_data = response.file
+                if hasattr(file_data, "read"):
+                    file_data = file_data.read()
+                return file_data, response.file_name
             else:
-                logger.error("Failed to download file: code={}, msg={}", response.code, response.msg)
+                logger.error("Failed to download {}: code={}, msg={}", resource_type, response.code, response.msg)
                 return None, None
-        except Exception as e:
-            logger.error("Error downloading file {}: {}", file_key, e)
+        except Exception:
+            logger.exception("Error downloading {} {}", resource_type, file_key)
             return None, None
 
     async def _download_and_save_media(
@@ -546,14 +555,14 @@ class FeishuChannel(BaseChannel):
                 if not filename:
                     filename = f"{image_key[:16]}.jpg"
 
-        elif msg_type in ("audio", "file"):
+        elif msg_type in ("audio", "file", "media"):
             file_key = content_json.get("file_key")
-            if file_key:
+            if file_key and message_id:
                 data, filename = await loop.run_in_executor(
-                    None, self._download_file_sync, file_key
+                    None, self._download_file_sync, message_id, file_key, msg_type
                 )
                 if not filename:
-                    ext = ".opus" if msg_type == "audio" else ""
+                    ext = {"audio": ".opus", "media": ".mp4"}.get(msg_type, "")
                     filename = f"{file_key[:16]}{ext}"
 
         if data and filename:
@@ -563,15 +572,6 @@ class FeishuChannel(BaseChannel):
             return str(file_path), f"[{msg_type}: {filename}]"
 
         return None, f"[{msg_type}: download failed]"
-
-    async def _download_image_resource(self, message_id: str, image_key: str) -> str | None:
-        """Backward-compatible wrapper used by tests and legacy callers."""
-        file_path, _ = await self._download_and_save_media(
-            "image",
-            {"image_key": image_key},
-            message_id,
-        )
-        return file_path
 
     def _send_message_sync(self, receive_id_type: str, receive_id: str, msg_type: str, content: str) -> bool:
         """Send a single message (text/image/file/interactive) synchronously."""
@@ -612,17 +612,8 @@ class FeishuChannel(BaseChannel):
                 if not os.path.isfile(file_path):
                     logger.warning("Media file not found: {}", file_path)
                     continue
-
-                size = os.path.getsize(file_path)
-                if size <= 0:
-                    logger.warning("Media file is empty and will be skipped: {}", file_path)
-                    continue
-                if size > self._MAX_FILE_BYTES:
-                    logger.warning("Media file exceeds 30MB and will be skipped: {} ({} bytes)", file_path, size)
-                    continue
-
                 ext = os.path.splitext(file_path)[1].lower()
-                if ext in self._IMAGE_EXTS and size <= self._MAX_IMAGE_BYTES:
+                if ext in self._IMAGE_EXTS:
                     key = await loop.run_in_executor(None, self._upload_image_sync, file_path)
                     if key:
                         await loop.run_in_executor(
@@ -704,16 +695,7 @@ class FeishuChannel(BaseChannel):
                 if text:
                     content_parts.append(text)
 
-            elif msg_type == "image":
-                image_key = content_json.get("image_key")
-                local_path = await self._download_image_resource(message_id, image_key) if image_key else None
-                if local_path:
-                    media_paths.append(local_path)
-                    content_parts.append("[image]")
-                else:
-                    content_parts.append("[image: download failed]")
-
-            elif msg_type in ("audio", "file"):
+            elif msg_type in ("image", "audio", "file", "media"):
                 file_path, content_text = await self._download_and_save_media(msg_type, content_json, message_id)
                 if file_path:
                     media_paths.append(file_path)
